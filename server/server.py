@@ -24,26 +24,42 @@ Run:
     python3 server.py
 """
 
-import time
-import os
-import json
-import socket
-import multiprocessing
-import hashlib
-import random
 import datetime
+import hashlib
+import json
+import multiprocessing
+import os
+import random
+import socket
+import time
 
-DEFAULT_PORT = 233
+CONFIG_FILE = './config.json'
 host = socket.gethostname()
 
+# Detect and create default config file
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, 'w') as dump_file:
+        dump_data = {
+            "Port": 233,
+            "Auth": False,
+            "AllowNickname": True,
+            "MessageLogFile": "./message-log.json",
+            "WelcomeMessage": "Welcome to PyChat Server!"
+            }
+        json.dump(dump_data, dump_file)
 # Load config from file
-with open("./config.json", 'r') as load_file:
+with open(CONFIG_FILE, 'r') as load_file:
     load_conf = json.load(load_file)
 port = load_conf["Port"]
 rx_port = port + 1
 AllowNickname = load_conf["AllowNickname"]
 MessageLogFile = load_conf["MessageLogFile"]
 WelcomeMessage = load_conf["WelcomeMessage"]
+# Detect and create default message log file
+if not os.path.exists(MessageLogFile):
+    with open(MessageLogFile, 'w') as dump_file:
+        dump_data = {"Message": []}
+        json.dump(dump_data, dump_file)
 
 
 def sender_main(cnn, addr):

@@ -1,7 +1,0 @@
-{
-    "Port": 233,
-    "Auth": false,
-    "AllowNickname": true,
-    "MessageLogFile": "./message-log.json",
-    "WelcomeMessage": "Welcome to PyChat Server!"
-}

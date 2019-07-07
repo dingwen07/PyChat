@@ -111,7 +111,9 @@ venv.bak/
 .idea/**/shelf
 
 # Project stuff
-server/credentials/*
-server/temp.json
-server/message-log.bk.json
 client/credential.json
+server/config.json
+server/message-log.json
+server/temp.json
+server/credentials/*
+
