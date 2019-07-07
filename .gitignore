@@ -112,3 +112,6 @@ venv.bak/
 
 # Project stuff
 server/credentials/*
+server/temp.json
+server/message-log.bk.json
+client/credential.json

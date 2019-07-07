@@ -7,7 +7,7 @@ import socket
 import json
 
 DEFAULT_PORT = 233
-clientCredentialFile = 'credential.json'
+CLIENT_CREDENTIAL_FILE = 'credential.json'
 
 
 def confirm(msg):
@@ -44,33 +44,33 @@ else:
 rx_port = port + 1
 
 # Try to load credential from cache
-credentialID = ''
-credentialCode = ''
+credential_id = ''
+credential_code = ''
 try:
-    with open(clientCredentialFile, 'r') as load_f:
-        loadCredential = json.load(load_f)
-    credentialID = loadCredential['id']
-    credentialCode = loadCredential['code']
+    with open(CLIENT_CREDENTIAL_FILE, 'r') as load_f:
+        load_credential = json.load(load_f)
+    credential_id = load_credential['id']
+    credential_code = load_credential['code']
 except:
     pass
 finally:
     # If a cached credential found, ask if user want use it
-    if credentialID != '':
+    if credential_id != '':
         if not confirm('Use cached credential'):
-            credentialID = input('ID: ')
-            credentialCode = input('Access Code: ')
+            credential_id = input('ID: ')
+            credential_code = input('Access Code: ')
     else:
-        credentialID = input('ID: ')
-        credentialCode = input('Access Code: ')
+        credential_id = input('ID: ')
+        credential_code = input('Access Code: ')
 print()
 
 # Send credential to server
 try:
     s.connect((host, rx_port))
     s.recv(1024)
-    s.send(credentialID.encode())
+    s.send(credential_id.encode())
     s.recv(1024)
-    s.send(credentialCode.encode())
+    s.send(credential_code.encode())
     s.recv(1024)
 except ConnectionRefusedError:
     print('Unable to connect ' + "'" + host + "'.")

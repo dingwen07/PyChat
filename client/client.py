@@ -7,7 +7,7 @@ import socket
 import json
 
 DEFAULT_PORT = 233
-clientCredentialFile = 'credential.json'
+CLIENT_CREDENTIAL_FILE = 'credential.json'
 
 
 def confirm(msg):
@@ -61,17 +61,17 @@ try:
             s.send('NICK_OFF'.encode())
     print('')
     # Get credential from the server
-    clientCredential_recv = s.recv(2048).decode()
-    clientCredential = clientCredential_recv.split(',')
-    new_data = {'id': clientCredential[0], 'code': clientCredential[1]}
+    client_credential_recv = s.recv(2048).decode()
+    client_credential = client_credential_recv.split(',')
+    new_data = {'id': client_credential[0], 'code': client_credential[1]}
     # Dump credential to local cache file
-    with open(clientCredentialFile, 'w') as dump_f:
-        json.dump(new_data, dump_f)
+    with open(CLIENT_CREDENTIAL_FILE, 'w') as dump_file:
+        json.dump(new_data, dump_file)
     print('Please save credential below to authenticate receiver...')
     print('ID:')
-    print(clientCredential[0])
+    print(client_credential[0])
     print('Access Code:')
-    print(clientCredential[1])
+    print(client_credential[1])
 
 except ConnectionRefusedError:
     print('Unable to connect ' + "'" + host + "'.")
@@ -82,12 +82,11 @@ print('')
 while True:
     try:
         send_data = input(">>>")
-        send_fmt = send_data.lower()
         if send_data == '':
             continue
-        elif send_fmt[0] == '#' and send_fmt[1] != '#':
-            send_fmt2 = send_fmt[1:]
-            if send_fmt2 == 'exit':
+        elif send_data[0] == '#' and send_data[1] != '#':
+            send_fmt = send_data[1:].lower()
+            if send_fmt == 'exit':
                 if confirm('Exit client') == 1:
                     s.send('##EXIT'.encode())
                     s.close()
@@ -96,11 +95,11 @@ while True:
                     print('CLIENT: Operation canceled.')
                     print()
                     continue
-            elif send_fmt2 == 'recv':
+            elif send_fmt == 'recv':
                 print(s.recv(4096).decode())
                 print()
             else:
-                print('CLIENT: COMMAND NOT FOUND')
+                print('CLIENT: INVALID COMMAND')
                 print()
                 continue
         s.send(send_data.encode())

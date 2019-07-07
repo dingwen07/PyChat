@@ -82,22 +82,22 @@ def sender_main(cnn, addr):
         cnn.send('NICK_REJECTED'.encode())
 
     # Generate a credential to authenticate the receiver
-    clientID = hashlib.sha256(client_address.encode()).hexdigest()
+    client_id = hashlib.sha256(client_address.encode()).hexdigest()
     client_credential_pre = str(datetime.datetime.now()) + client_address + str(random.randint(100000, 655360))
     client_credential = hashlib.sha512(client_credential_pre.encode()).hexdigest()
-    client_credential_send = clientID + ',' + client_credential
+    client_credential_send = client_id + ',' + client_credential
     print(client_address + ' ' + str(client_credential_send.split(',')))
     # Send the credential to the sender
     cnn.send(client_credential_send.encode())
     # Dump the credential to local file
     dump_data = {
-        'id': clientID,
+        'id': client_id,
         'address': addr,
         'name': nickname,
         'code': client_credential,
         'valid': True
     }
-    with open("./credentials/" + clientID + ".json", 'w') as dump_file:
+    with open("./credentials/" + client_id + ".json", 'w') as dump_file:
         json.dump(dump_data, dump_file)
 
     # Create a loop to receive and process messages
@@ -110,12 +110,12 @@ def sender_main(cnn, addr):
             message_time = str(datetime.datetime.now())
             message_counter = message_counter + 1
             message_content = request
-            messageID_pre = message_time + client_address + str(message_counter) + message_content
-            messageID = hashlib.sha256(messageID_pre.encode()).hexdigest()
+            message_id_pre = message_time + client_address + str(message_counter) + message_content
+            message_id = hashlib.sha256(message_id_pre.encode()).hexdigest()
 
             # Validate credentials
             try:
-                with open("./credentials/" + clientID + ".json", 'r') as load_file:
+                with open("./credentials/" + client_id + ".json", 'r') as load_file:
                     load_credential = json.load(load_file)
                 if not (load_credential['valid']):
                     print(str(addr) + ' Rejected (Invalid Credential)')
@@ -124,23 +124,23 @@ def sender_main(cnn, addr):
                     return 1
             except:
                 print(str(addr) + ' Rejected (Invalid Credential)')
-                cnn.send('Invalid Credential'.encode())
+                cnn.send('##Invalid Credential'.encode())
                 cnn.close()
                 return 1
 
             print(client_address + ': ' + request)
 
             # Detect if the received message is an instruction to the server
-            if len(request) > 2:
+            if len(request.strip()) > 2:
                 if request[0:2] == '##' and request[2] != '#':
                     # Session command
                     request_cmd_session_fmt = request.lower()[2:]
                     if request_cmd_session_fmt == 'exit':
                         print(client_address + ' Disconnected')
-                        with open("./credentials/" + clientID + ".json", 'r') as load_file:
+                        with open("./credentials/" + client_id + ".json", 'r') as load_file:
                             load_credential = json.load(load_file)
                         load_credential['valid'] = False
-                        with open("./credentials/" + clientID + ".json", 'w') as dump_file:
+                        with open("./credentials/" + client_id + ".json", 'w') as dump_file:
                             json.dump(load_credential, dump_file)
                         cnn.close()
                         return 0
@@ -161,21 +161,21 @@ def sender_main(cnn, addr):
                     else:
                         cnn.send('INVALID COMMAND'.encode())
                     continue
-                elif len(request) > 3 and request[0:3] == '###':
+                elif len(request.strip()) > 3 and request[0:3] == '###':
                     # Server command
                     request_cmd_server_fmt = request.lower()[3:]
                     print('SERVER COMMAND')
                     if request_cmd_server_fmt == 'exit':
                         os._exit(0)
-                    elif request_cmd_server_fmt[0:4] == 'kick':
-                        targetClientID = request_cmd_server_fmt[5:]
-                        print(targetClientID)
+                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt.strip()) > 5:
+                        target_client_id = request_cmd_server_fmt[5:].strip()
+                        print(target_client_id)
                         try:
-                            with open("./credentials/" + targetClientID + ".json", 'r') as load_file:
-                                loadTargetCredential = json.load(load_file)
-                            loadTargetCredential['valid'] = False
-                            with open("./credentials/" + targetClientID + ".json", 'w') as dump_file:
-                                json.dump(loadTargetCredential, dump_file)
+                            with open("./credentials/" + target_client_id + ".json", 'r') as load_file:
+                                load_target_credential = json.load(load_file)
+                            load_target_credential['valid'] = False
+                            with open("./credentials/" + target_client_id + ".json", 'w') as dump_file:
+                                json.dump(load_target_credential, dump_file)
                             cnn.send('KICKED'.encode())
                         except Exception:
                             cnn.send('CLIENT NOT FOUND'.encode())
@@ -222,9 +222,9 @@ def sender_main(cnn, addr):
             '''
             with open("./temp.json", 'w') as dump_file:
                 dump_data = {
-                    "messageID": messageID,
+                    "message_id": message_id,
                     "message_time": message_time,
-                    "clientID": clientID,
+                    "client_id": client_id,
                     "client_address": addr,
                     "client_name": client_name,
                     "message_content": message_content
@@ -232,7 +232,7 @@ def sender_main(cnn, addr):
                 json.dump(dump_data, dump_file)
 
             # Dump the message to log file
-            messageInList = [messageID, message_time, clientID, addr, client_name, message_content]
+            messageInList = [message_id, message_time, client_id, addr, client_name, message_content]
             with open(MessageLogFile, 'r') as load_file:
                 load_log = json.load(load_file)
             dump_log = load_log
@@ -242,10 +242,10 @@ def sender_main(cnn, addr):
 
         except ConnectionResetError:
             print(client_address + ' Disconnected (Unexpected)')
-            with open("./credentials/" + clientID + ".json", 'r') as load_file:
+            with open("./credentials/" + client_id + ".json", 'r') as load_file:
                 load_credential = json.load(load_file)
             load_credential['valid'] = False
-            with open("./credentials/" + clientID + ".json", 'w') as dump_file:
+            with open("./credentials/" + client_id + ".json", 'w') as dump_file:
                 json.dump(load_credential, dump_file)
             cnn.close()
             return 0
@@ -281,9 +281,9 @@ def receiver_launcher():
 
 
 def receiver_main(rxcnn, addr):
-    """recivier communication
+    """receiver communication
 
-    This method is used to communicate with the recivier (client)
+    This method is used to communicate with the receiver (client)
 
     Args:
         rxcnn: socket object, for socket communication
@@ -299,14 +299,14 @@ def receiver_main(rxcnn, addr):
     print(str(addr) + ' RX Connected')
     # Receive credential from the client
     rxcnn.send('UNBLOCK'.encode())
-    clientID = rxcnn.recv(1024).decode()
-    rxcnn.send(clientID.encode())
+    client_id = rxcnn.recv(1024).decode()
+    rxcnn.send(client_id.encode())
     client_credential = rxcnn.recv(1024).decode()
     rxcnn.send(client_credential.encode())
 
     # Validate credentials
     try:
-        with open("./credentials/" + clientID + ".json", 'r') as load_file:
+        with open("./credentials/" + client_id + ".json", 'r') as load_file:
             load_credential = json.load(load_file)
         if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                 load_credential['address'][0] == addr[0])):
@@ -329,17 +329,17 @@ def receiver_main(rxcnn, addr):
             # Wait until a new message is detected
             with open("./temp.json", 'r') as load_file:
                 load_msg = json.load(load_file)
-            tempMessageID = load_msg['messageID']
-            messageID = tempMessageID
-            while tempMessageID == messageID:
+            temp_message_id = load_msg['message_id']
+            message_id = temp_message_id
+            while temp_message_id == message_id:
                 time.sleep(0.1)
                 with open("./temp.json", 'r') as load_file:
                     load_msg = json.load(load_file)
-                messageID = load_msg['messageID']
+                message_id = load_msg['message_id']
 
             # Validate credentials
             try:
-                with open("./credentials/" + clientID + ".json", 'r') as load_file:
+                with open("./credentials/" + client_id + ".json", 'r') as load_file:
                     load_credential = json.load(load_file)
                 if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                         load_credential['address'][0] == addr[0])):
