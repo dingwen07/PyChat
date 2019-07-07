@@ -34,7 +34,7 @@ import socket
 import time
 
 CONFIG_FILE = './config.json'
-host = socket.gethostname()
+HOST = socket.gethostname()
 
 # Detect and create default config file
 if not os.path.exists(CONFIG_FILE):
@@ -45,7 +45,7 @@ if not os.path.exists(CONFIG_FILE):
             "AllowNickname": True,
             "MessageLogFile": "./message-log.json",
             "WelcomeMessage": "Welcome to PyChat Server!"
-            }
+        }
         json.dump(dump_data, dump_file)
 # Load config from file
 with open(CONFIG_FILE, 'r') as load_file:
@@ -183,7 +183,8 @@ def sender_main(cnn, addr):
                     print('SERVER COMMAND')
                     if request_cmd_server_fmt == 'exit':
                         os._exit(0)
-                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt.strip()) > 5:
+                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt.strip()) > 4 and \
+                            request_cmd_server_fmt[4] == ' ':
                         target_client_id = request_cmd_server_fmt[5:].strip()
                         print(target_client_id)
                         try:
@@ -197,7 +198,7 @@ def sender_main(cnn, addr):
                             cnn.send('CLIENT NOT FOUND'.encode())
                     elif request_cmd_server_fmt[0:5] == 'getid':
                         target_name = request_cmd_server_fmt[6:]
-                        targetList = []
+                        target_list = []
                         credential_path = './credentials'
                         credential_files = os.listdir(credential_path)
                         for file_name in credential_files:
@@ -206,10 +207,10 @@ def sender_main(cnn, addr):
                                     load_credential = json.load(load_file)
                                 if (load_credential['address'][0] == target_name or load_credential[
                                     'name'].lower() == target_name) and load_credential['valid']:
-                                    targetList.append([load_credential['id'],
-                                                       (load_credential['address'][0], load_credential['address'][1]),
-                                                       load_credential['name']])
-                        cnn.send(str(targetList).encode())
+                                    target_list.append([load_credential['id'],
+                                                        (load_credential['address'][0], load_credential['address'][1]),
+                                                        load_credential['name']])
+                        cnn.send(str(target_list).encode())
                     else:
                         cnn.send('INVALID COMMAND'.encode())
                     continue
@@ -274,7 +275,7 @@ def receiver_launcher():
     """
 
     rxs = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    rxs.bind((host, rx_port))
+    rxs.bind((HOST, rx_port))
     rxs.listen(5)
 
     while True:
@@ -406,7 +407,7 @@ if __name__ == '__main__':
     rxm = multiprocessing.Process(target=receiver_launcher, args=())
     rxm.start()
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind((host, port))
+    s.bind((HOST, port))
     s.listen(5)
 
     while True:
