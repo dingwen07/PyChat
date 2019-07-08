@@ -15,7 +15,7 @@ CLIENT_CREDENTIAL_FILE = 'credential.json'
 
 # Ask the user about the server they need to connect to
 s = socket.socket()
-host = input('Input server name: ')
+host = input('Input server name: ').strip()
 if host == '':
     print('Use localhost...')
     host = socket.gethostname()
@@ -47,7 +47,7 @@ try:
     # Get credential from the server
     client_credential_recv = s.recv(2048).decode()
     client_credential = client_credential_recv.split(',')
-    new_data = {'id': client_credential[0], 'code': client_credential[1]}
+    new_data = {'server': host, 'port': port, 'id': client_credential[0], 'code': client_credential[1]}
     # Dump credential to local cache file
     with open(CLIENT_CREDENTIAL_FILE, 'w') as dump_file:
         json.dump(new_data, dump_file)

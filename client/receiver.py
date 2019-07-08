@@ -13,19 +13,7 @@ from mylibs import *
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
 
-# Ask the user about the server they need to connect to
 s = socket.socket()
-host = input('Input server name: ')
-if host == '':
-    print('Use localhost...')
-    host = socket.gethostname()
-port = input('Input port: ')
-if port == '':
-    print('Use default port...')
-    port = DEFAULT_PORT
-else:
-    port = int(port)
-rx_port = port + 1
 
 # Try to load credential from cache
 credential_id = ''
@@ -33,19 +21,30 @@ credential_code = ''
 try:
     with open(CLIENT_CREDENTIAL_FILE, 'r') as load_f:
         load_credential = json.load(load_f)
+    host = load_credential['server']
+    port = load_credential['port']
     credential_id = load_credential['id']
     credential_code = load_credential['code']
 except:
     pass
 finally:
     # If a cached credential found, ask if user want use it
-    if credential_id != '':
-        if not confirm('Use cached credential'):
-            credential_id = input('ID: ')
-            credential_code = input('Access Code: ')
-    else:
+    if credential_id == '' or not confirm('Use cached credential'):
+        # Ask the user about the server they need to connect to
+        host = input('Input server name: ').strip()
+        if host == '':
+            print('Use localhost...')
+            host = socket.gethostname()
+        port = input('Input port: ')
+        if port == '':
+            print('Use default port...')
+            port = DEFAULT_PORT
+        else:
+            port = int(port)
         credential_id = input('ID: ')
         credential_code = input('Access Code: ')
+    rx_port = port + 1
+
 print()
 
 # Send credential to server
