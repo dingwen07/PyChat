@@ -13,6 +13,7 @@ Requirements: {
                     "Auth": false,
                     "AllowNickname": true,
                     "MessageLogFile": "./message-log.json",
+                    "CredentialFolder": "./credentials/",
                     "WelcomeMessage": "Welcome to PyChat Server!"
                 }
         ./message-log.json
@@ -44,6 +45,7 @@ if not os.path.exists(CONFIG_FILE):
             "Auth": False,
             "AllowNickname": True,
             "MessageLogFile": "./message-log.json",
+            "CredentialFolder": "./credentials/",
             "WelcomeMessage": "Welcome to PyChat Server!"
         }
         json.dump(dump_data, dump_file)
@@ -54,13 +56,15 @@ port = load_conf["Port"]
 rx_port = port + 1
 AllowNickname = load_conf["AllowNickname"]
 MessageLogFile = load_conf["MessageLogFile"]
+CredentialFolder = load_conf["CredentialFolder"]
 WelcomeMessage = load_conf["WelcomeMessage"]
-# Detect and create default message log file
+# Detect and create default message log file and credential folder
 if not os.path.exists(MessageLogFile):
     with open(MessageLogFile, 'w') as dump_file:
         dump_data = {"Message": []}
         json.dump(dump_data, dump_file)
-
+if not os.path.exists(CredentialFolder):
+    os.makedirs(CredentialFolder)
 
 def sender_main(cnn, addr):
     """sender communication
@@ -113,7 +117,7 @@ def sender_main(cnn, addr):
         'code': client_credential,
         'valid': True
     }
-    with open("./credentials/" + client_id + ".json", 'w') as dump_file:
+    with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
         json.dump(dump_data, dump_file)
 
     # Create a loop to receive and process messages
@@ -131,7 +135,7 @@ def sender_main(cnn, addr):
 
             # Validate credentials
             try:
-                with open("./credentials/" + client_id + ".json", 'r') as load_file:
+                with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                     load_credential = json.load(load_file)
                 if not (load_credential['valid']):
                     print(str(addr) + ' Rejected (Invalid Credential)')
@@ -153,10 +157,10 @@ def sender_main(cnn, addr):
                     request_cmd_session_fmt = request.lower()[2:].strip()
                     if request_cmd_session_fmt == 'exit':
                         print(client_address + ' Disconnected')
-                        with open("./credentials/" + client_id + ".json", 'r') as load_file:
+                        with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                             load_credential = json.load(load_file)
                         load_credential['valid'] = False
-                        with open("./credentials/" + client_id + ".json", 'w') as dump_file:
+                        with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
                             json.dump(load_credential, dump_file)
                         cnn.close()
                         return 0
@@ -188,10 +192,10 @@ def sender_main(cnn, addr):
                         target_client_id = request_cmd_server_fmt[5:]
                         print(target_client_id)
                         try:
-                            with open("./credentials/" + target_client_id + ".json", 'r') as load_file:
+                            with open(CredentialFolder + target_client_id + ".json", 'r') as load_file:
                                 load_target_credential = json.load(load_file)
                             load_target_credential['valid'] = False
-                            with open("./credentials/" + target_client_id + ".json", 'w') as dump_file:
+                            with open(CredentialFolder + target_client_id + ".json", 'w') as dump_file:
                                 json.dump(load_target_credential, dump_file)
                             cnn.send('KICKED'.encode())
                         except Exception:
@@ -206,7 +210,7 @@ def sender_main(cnn, addr):
                             credential_files = os.listdir(credential_path)
                             for file_name in credential_files:
                                 if not os.path.isdir(file_name):
-                                    with open("./credentials/" + file_name, 'r') as load_file:
+                                    with open(CredentialFolder + file_name, 'r') as load_file:
                                         load_credential = json.load(load_file)
                                     if (target_name == '*' or target_name == load_credential['code'] or target_name ==
                                         load_credential['address'][0] or target_name == str(
@@ -267,10 +271,10 @@ def sender_main(cnn, addr):
 
         except ConnectionResetError:
             print(client_address + ' Disconnected (Unexpected)')
-            with open("./credentials/" + client_id + ".json", 'r') as load_file:
+            with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                 load_credential = json.load(load_file)
             load_credential['valid'] = False
-            with open("./credentials/" + client_id + ".json", 'w') as dump_file:
+            with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
                 json.dump(load_credential, dump_file)
             cnn.close()
             return 0
@@ -331,7 +335,7 @@ def receiver_main(rxcnn, addr):
 
     # Validate credentials
     try:
-        with open("./credentials/" + client_id + ".json", 'r') as load_file:
+        with open(CredentialFolder + client_id + ".json", 'r') as load_file:
             load_credential = json.load(load_file)
         if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                 load_credential['address'][0] == addr[0])):
@@ -364,7 +368,7 @@ def receiver_main(rxcnn, addr):
 
             # Validate credentials
             try:
-                with open("./credentials/" + client_id + ".json", 'r') as load_file:
+                with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                     load_credential = json.load(load_file)
                 if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                         load_credential['address'][0] == addr[0])):
@@ -405,10 +409,10 @@ if __name__ == '__main__':
     credential_files = os.listdir(credential_path)
     for file_name in credential_files:
         if not os.path.isdir(file_name):
-            with open("./credentials/" + file_name, 'r') as load_file:
+            with open(CredentialFolder + file_name, 'r') as load_file:
                 credential = json.load(load_file)
             credential['valid'] = False
-            with open("./credentials/" + file_name, 'w') as dump_file:
+            with open(CredentialFolder + file_name, 'w') as dump_file:
                 json.dump(credential, dump_file)
 
     # Create an object for establishing socket communication
