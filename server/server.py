@@ -150,7 +150,7 @@ def sender_main(cnn, addr):
             if len(request.strip()) > 2:
                 if request[0:2] == '##' and request[2] != '#':
                     # Session command
-                    request_cmd_session_fmt = request.lower()[2:]
+                    request_cmd_session_fmt = request.lower()[2:].strip()
                     if request_cmd_session_fmt == 'exit':
                         print(client_address + ' Disconnected')
                         with open("./credentials/" + client_id + ".json", 'r') as load_file:
@@ -168,9 +168,9 @@ def sender_main(cnn, addr):
                                 cnn.send(nickname.encode())
                             else:
                                 cnn.send('NICKNAME NOT SET'.encode())
-                        elif request_cmd_session_fmt[5:8] == 'set' and len(request_cmd_session_fmt.strip()) > 9:
+                        elif request_cmd_session_fmt[5:8] == 'set' and len(request_cmd_session_fmt) > 9:
                             use_nickname = True
-                            nickname = request_cmd_session_fmt[9:].strip()
+                            nickname = request_cmd_session_fmt[9:]()
                             cnn.send('NICKNAME SET'.encode())
                         else:
                             cnn.send('INVALID COMMAND'.encode())
@@ -179,13 +179,13 @@ def sender_main(cnn, addr):
                     continue
                 elif len(request.strip()) > 3 and request[0:3] == '###':
                     # Server command
-                    request_cmd_server_fmt = request.lower()[3:]
+                    request_cmd_server_fmt = request.lower()[3:].strip()
                     print('SERVER COMMAND')
                     if request_cmd_server_fmt == 'exit':
                         os._exit(0)
-                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt.strip()) > 4 and \
+                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt) > 4 and \
                             request_cmd_server_fmt[4] == ' ':
-                        target_client_id = request_cmd_server_fmt[5:].strip()
+                        target_client_id = request_cmd_server_fmt[5:]
                         print(target_client_id)
                         try:
                             with open("./credentials/" + target_client_id + ".json", 'r') as load_file:
@@ -196,21 +196,29 @@ def sender_main(cnn, addr):
                             cnn.send('KICKED'.encode())
                         except Exception:
                             cnn.send('CLIENT NOT FOUND'.encode())
-                    elif request_cmd_server_fmt[0:5] == 'getid':
-                        target_name = request_cmd_server_fmt[6:]
-                        target_list = []
-                        credential_path = './credentials'
-                        credential_files = os.listdir(credential_path)
-                        for file_name in credential_files:
-                            if not os.path.isdir(file_name):
-                                with open("./credentials/" + file_name, 'r') as load_file:
-                                    load_credential = json.load(load_file)
-                                if (load_credential['address'][0] == target_name or load_credential[
-                                    'name'].lower() == target_name) and load_credential['valid']:
-                                    target_list.append([load_credential['id'],
-                                                        (load_credential['address'][0], load_credential['address'][1]),
-                                                        load_credential['name']])
-                        cnn.send(str(target_list).encode())
+                    elif request_cmd_server_fmt[0:3] == 'get' and len(request_cmd_server_fmt) > 3 and \
+                            request_cmd_server_fmt[3] == ' ':
+                        if request_cmd_server_fmt[4:6] == 'id' and len(request_cmd_server_fmt) > 7 and \
+                                request_cmd_server_fmt[6] == ' ':
+                            target_name = request_cmd_server_fmt[7:]
+                            target_list = []
+                            credential_path = './credentials'
+                            credential_files = os.listdir(credential_path)
+                            for file_name in credential_files:
+                                if not os.path.isdir(file_name):
+                                    with open("./credentials/" + file_name, 'r') as load_file:
+                                        load_credential = json.load(load_file)
+                                    if (target_name == '*' or target_name == load_credential['code'] or target_name ==
+                                        load_credential['address'][0] or target_name == str(
+                                                    load_credential['address'][1]) or target_name in load_credential[
+                                            'name'].lower()) and load_credential['valid']:
+                                        target_list.append([load_credential['id'],
+                                                            (load_credential['address'][0],
+                                                             load_credential['address'][1]),
+                                                            load_credential['name']])
+                            cnn.send(str(target_list).encode())
+                        else:
+                            cnn.send('INVALID COMMAND'.encode())
                     else:
                         cnn.send('INVALID COMMAND'.encode())
                     continue
