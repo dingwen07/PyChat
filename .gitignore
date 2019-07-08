@@ -111,8 +111,9 @@ venv.bak/
 .idea/**/shelf
 
 # Project stuff
+server/credentials/*
+mylibs.py
 client/credential.json
 server/config.json
 server/message-log.json
 server/temp.json
-server/credentials/*

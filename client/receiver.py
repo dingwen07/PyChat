@@ -3,31 +3,15 @@ This is the client side of PyChat
 This is the receiver part of the client
 """
 
+import sys
 import socket
 import json
 
+sys.path.append("client/")
+from mylibs import *
+
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
-
-
-def confirm(msg):
-    """Get confirmation from the console
-
-    Ask the user to confirm some operations through the console.
-
-    Args:
-        msg: String, store the message will be displayed in the console
-    Returns:
-        Method returns Boolean value
-    """
-
-    print(msg)
-    answer = input('Do you sure? (Y/n) ')
-    if answer == 'Y'or answer == 'y':
-        return 1
-    else:
-        return 0
-
 
 # Ask the user about the server they need to connect to
 s = socket.socket()
@@ -75,7 +59,6 @@ try:
 except ConnectionRefusedError:
     print('Unable to connect ' + "'" + host + "'.")
     exit()
-
 
 # Create a loop to continuously receive messages from the server
 while True:
