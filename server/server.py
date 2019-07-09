@@ -270,7 +270,7 @@ def sender_main(cnn, addr):
             with open(MessageLogFile, 'w') as dump_file:
                 json.dump(dump_log, dump_file)
 
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             print(client_address + ' Disconnected (Unexpected)')
             with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                 load_credential = json.load(load_file)
@@ -307,7 +307,7 @@ def receiver_launcher():
             # Initiate a subprocess
             m.start()
 
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             pass
         except Exception as e:
             print(e)
@@ -392,7 +392,7 @@ def receiver_main(rxcnn, addr):
             rxcnn.send(messageSend.encode())
             print('Local==>' + str(addr) + ' RX Send: ' + messageSend)
 
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             print(str(addr) + ' RX Disconnected (Unexpected)')
             rxcnn.close()
             return 0
@@ -441,7 +441,7 @@ if __name__ == '__main__':
             # Initiate a subprocess
             m.start()
 
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             pass
         except Exception as e:
             print(e)

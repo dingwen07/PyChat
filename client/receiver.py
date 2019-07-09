@@ -66,7 +66,7 @@ while True:
         if rx_data == '':
             s.send('RX ACTIVE'.encode())
         print(rx_data)
-    except ConnectionResetError:
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
         print('Server disconnected.')
         s.close()
         break

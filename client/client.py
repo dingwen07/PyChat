@@ -96,7 +96,7 @@ while True:
             print(reply)
             print()
 
-    except ConnectionResetError:
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
         print('Server disconnected.')
         s.close()
         break
