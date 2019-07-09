@@ -148,8 +148,6 @@ def sender_main(cnn, addr):
                 cnn.close()
                 return 1
 
-            print(client_address + ': ' + request)
-
             # Detect if the received message is an instruction to the server
             if len(request.strip()) > 2:
                 if request[0:2] == '##' and request[2] != '#':
@@ -232,8 +230,11 @@ def sender_main(cnn, addr):
             If an empty message is received, a message is sent to the client receiver to confirm if that client is still alive.
             '''
             if request == '':
+                time.sleep(0.5)
                 cnn.send('ACTIVE'.encode())
                 continue
+
+            print(client_address + ': ' + request)
 
             # The received message is returned to the client receiver to help the client confirm that the message has
             # been delivered. 
@@ -269,7 +270,7 @@ def sender_main(cnn, addr):
             with open(MessageLogFile, 'w') as dump_file:
                 json.dump(dump_log, dump_file)
 
-        except ConnectionResetError:
+        except (BrokenPipeError, ConnectionResetError):
             print(client_address + ' Disconnected (Unexpected)')
             with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                 load_credential = json.load(load_file)
@@ -278,6 +279,9 @@ def sender_main(cnn, addr):
                 json.dump(load_credential, dump_file)
             cnn.close()
             return 0
+        except Exception as e:
+            print(e)
+            continue
 
 
 def receiver_launcher():
@@ -303,10 +307,11 @@ def receiver_launcher():
             # Initiate a subprocess
             m.start()
 
-        except ConnectionResetError:
+        except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:
             print(e)
+            continue
 
 
 def receiver_main(rxcnn, addr):
@@ -387,12 +392,13 @@ def receiver_main(rxcnn, addr):
             rxcnn.send(messageSend.encode())
             print('Local==>' + str(addr) + ' RX Send: ' + messageSend)
 
-        except ConnectionResetError:
+        except (BrokenPipeError, ConnectionResetError):
             print(str(addr) + ' RX Disconnected (Unexpected)')
             rxcnn.close()
             return 0
 
-        except Exception:
+        except Exception as e:
+            print(e)
             continue
 
 
@@ -435,7 +441,8 @@ if __name__ == '__main__':
             # Initiate a subprocess
             m.start()
 
-        except ConnectionResetError:
+        except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:
             print(e)
+            continue
