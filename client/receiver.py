@@ -65,6 +65,7 @@ while True:
         rx_data = s.recv(4096).decode()
         if rx_data == '':
             s.send('RX ACTIVE'.encode())
+            continue
         print(rx_data)
     except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
         print('Server disconnected.')
