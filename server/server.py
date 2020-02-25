@@ -95,7 +95,8 @@ def sender_main(cnn, addr):
             use_nickname = True
             print(client_address + ' Nickname status=' + str(use_nickname))
             nickname = cnn.recv(1024).decode()
-            print(client_address + ' Nickname=' + str(nickname))
+            nickname = nickname.strip('#')
+            print(client_address + ' Nickname=' + nickname)
         else:
             print(client_address + ' Nickname status=' + str(use_nickname))
     else:
@@ -125,6 +126,8 @@ def sender_main(cnn, addr):
         try:
             # Receive message
             request = cnn.recv(4096).decode()
+            print(client_address + ': ' + request)
+
 
             # Generate message ID
             message_time = str(datetime.datetime.now())
@@ -138,12 +141,12 @@ def sender_main(cnn, addr):
                 with open(CredentialFolder + client_id + ".json", 'r') as load_file:
                     load_credential = json.load(load_file)
                 if not (load_credential['valid']):
-                    print(str(addr) + ' Rejected (Invalid Credential)')
+                    print(client_address + ' Rejected (Invalid Credential)')
                     cnn.send('Invalid Credential'.encode())
                     cnn.close()
                     return 1
             except:
-                print(str(addr) + ' Rejected (Invalid Credential)')
+                print(client_address + ' Rejected (Invalid Credential)')
                 cnn.send('##Invalid Credential'.encode())
                 cnn.close()
                 return 1
@@ -164,15 +167,15 @@ def sender_main(cnn, addr):
                         return 0
                     elif request_cmd_session_fmt == 'welcome':
                         cnn.send(WelcomeMessage.encode())
-                    elif request_cmd_session_fmt[0:4] == 'nick' and request_cmd_session_fmt[4] == ' ':
+                    elif len(request_cmd_session_fmt) > 5 and request_cmd_session_fmt[0:5] == 'nick ':
                         if request_cmd_session_fmt[5:] == 'get':
                             if use_nickname:
                                 cnn.send(nickname.encode())
                             else:
-                                cnn.send('NICKNAME NOT SET'.encode())
-                        elif request_cmd_session_fmt[5:8] == 'set' and len(request_cmd_session_fmt) > 9:
+                                cnn.send('#NICKNAME NOT SET#'.encode())
+                        elif len(request_cmd_session_fmt) > 9 and request_cmd_session_fmt[5:9] == 'set ':
                             use_nickname = True
-                            nickname = request_cmd_session_fmt[9:]()
+                            nickname = request[11:].strip('#')
                             cnn.send('NICKNAME SET'.encode())
                         else:
                             cnn.send('INVALID COMMAND'.encode())
@@ -198,10 +201,8 @@ def sender_main(cnn, addr):
                             cnn.send('KICKED'.encode())
                         except Exception:
                             cnn.send('CLIENT NOT FOUND'.encode())
-                    elif request_cmd_server_fmt[0:3] == 'get' and len(request_cmd_server_fmt) > 3 and \
-                            request_cmd_server_fmt[3] == ' ':
-                        if request_cmd_server_fmt[4:6] == 'id' and len(request_cmd_server_fmt) > 7 and \
-                                request_cmd_server_fmt[6] == ' ':
+                    elif len(request_cmd_server_fmt) > 3 and request_cmd_server_fmt[0:4] == 'get ':
+                        if len(request_cmd_server_fmt) > 7 and request_cmd_server_fmt[4:7] == 'id ':
                             target_name = request_cmd_server_fmt[7:]
                             target_list = []
                             credential_path = './credentials'
@@ -218,7 +219,11 @@ def sender_main(cnn, addr):
                                                             (load_credential['address'][0],
                                                              load_credential['address'][1]),
                                                             load_credential['name']])
-                            cnn.send(str(target_list).encode())
+                            target_str = ''
+                            for item in target_list:
+                                target_str = target_str + str(item) + '\n'
+                            cnn.send(target_str.strip('\n').encode())
+                            # cnn.send(str(target_list).encode())
                         else:
                             cnn.send('INVALID COMMAND'.encode())
                     else:
@@ -234,7 +239,7 @@ def sender_main(cnn, addr):
                 cnn.send('ACTIVE'.encode())
                 continue
 
-            print(client_address + ': ' + request)
+            # print(client_address + ': ' + request)
 
             # The received message is returned to the client receiver to help the client confirm that the message has
             # been delivered. 
@@ -330,7 +335,10 @@ def receiver_main(rxcnn, addr):
         Validation fails returns 1
     """
 
-    print(str(addr) + ' RX Connected')
+    client_address = str(addr)
+
+
+    print(client_address + ' RX Connected')
     # Receive credential from the client
     rxcnn.send('UNBLOCK'.encode())
     client_id = rxcnn.recv(1024).decode()
@@ -344,12 +352,12 @@ def receiver_main(rxcnn, addr):
             load_credential = json.load(load_file)
         if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                 load_credential['address'][0] == addr[0])):
-            print(str(addr) + ' RX Rejected (Invalid Credential)')
+            print(client_address + ' RX Rejected (Invalid Credential)')
             rxcnn.send('Invalid Credential'.encode())
             rxcnn.close()
             return 1
     except:
-        print(str(addr) + ' RX Rejected (Invalid Credential)')
+        print(client_address + ' RX Rejected (Invalid Credential)')
         rxcnn.send('Invalid Credential'.encode())
         rxcnn.close()
         return 1
@@ -377,12 +385,12 @@ def receiver_main(rxcnn, addr):
                     load_credential = json.load(load_file)
                 if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
                         load_credential['address'][0] == addr[0])):
-                    print(str(addr) + ' RX Rejected (Invalid Credential)')
+                    print(client_address + ' RX Rejected (Invalid Credential)')
                     rxcnn.send('Invalid Credential'.encode())
                     rxcnn.close()
                     return 1
             except:
-                print(str(addr) + ' RX Rejected (Invalid Credential)')
+                print(client_address + ' RX Rejected (Invalid Credential)')
                 rxcnn.send('Invalid Credential'.encode())
                 rxcnn.close()
                 return 1
@@ -390,10 +398,10 @@ def receiver_main(rxcnn, addr):
             # Send message
             messageSend = load_msg['client_name'] + ': ' + load_msg['message_content']
             rxcnn.send(messageSend.encode())
-            print('Local==>' + str(addr) + ' RX Send: ' + messageSend)
+            print('Local==>' + client_address + ' RX Send: ' + messageSend)
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
-            print(str(addr) + ' RX Disconnected (Unexpected)')
+            print(client_address + ' RX Disconnected (Unexpected)')
             rxcnn.close()
             return 0
 

@@ -68,7 +68,7 @@ while True:
         send_data = input(">>>")
         if send_data == '':
             continue
-        elif send_data[0] == '#' and send_data[1] != '#':
+        elif len(send_data) > 1 and send_data[0] == '#' and send_data[1] != '#':
             send_fmt = send_data[1:].lower()
             if send_fmt == 'exit':
                 if confirm('Exit client') == 1:
