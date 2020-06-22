@@ -39,6 +39,7 @@ HOST = socket.gethostname()
 
 # Detect and create default config file
 if not os.path.exists(CONFIG_FILE):
+    print('Creating config file...')
     with open(CONFIG_FILE, 'w') as dump_file:
         dump_data = {
             "Port": 233,
@@ -65,6 +66,7 @@ if not os.path.exists(MessageLogFile):
         json.dump(dump_data, dump_file)
 if not os.path.exists(CredentialFolder):
     os.makedirs(CredentialFolder)
+
 
 def sender_main(cnn, addr):
     """sender communication
@@ -419,6 +421,7 @@ if __name__ == '__main__':
     print(load_conf)
 
     # Invalidate all credentials
+    print('Invalidating credentials...')
     credential_path = './credentials'
     credential_files = os.listdir(credential_path)
     for file_name in credential_files:
@@ -435,6 +438,8 @@ if __name__ == '__main__':
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((HOST, port))
     s.listen(5)
+
+    print('Server started!')
 
     while True:
         try:

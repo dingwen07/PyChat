@@ -32,7 +32,7 @@ except:
     pass
 finally:
     # If a cached credential found, ask if user want use it
-    if credential_id == '' or not confirm('Use cached credential', True):
+    if credential_id == '':
         # Ask the user about the server they need to connect to
         host = input('Input server name: ').strip()
         if host == '':

@@ -4,6 +4,9 @@ This is the sender part of the client
 """
 
 import json
+import time
+import random
+import multiprocessing
 import socket
 
 try:
@@ -14,26 +17,13 @@ except ImportError:
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
 
-# Ask the user about the server they need to connect to
 s = socket.socket()
-host = input('Input server name: ').strip()
-if host == '':
-    print('Use localhost...')
-    host = socket.gethostname()
-print('Connecting to ', host)
-port = input('Input port: ')
-if port == '':
-    print('Use default port...')
-    port = DEFAULT_PORT
-else:
-    port = int(port)
+host = socket.gethostname()
+port = DEFAULT_PORT
 rx_port = port + 1
 print('Connecting to ' + host + ':' + str(port))
-use_nickname = confirm('Use a nickname')
+use_nickname = False
 nickname = ''
-if use_nickname:
-    nickname = input('Input your nickname: ')
-
 
 # Try to connect to the server
 try:
@@ -67,13 +57,14 @@ print('')
 # Create a loop to send messages to the server
 while True:
     try:
-        send_data = input(">>>")
+        send_data = random.randint(0, 9)
+        time.sleep(100)
         if send_data == '':
             continue
         elif len(send_data) > 1 and send_data[0] == '#' and send_data[1] != '#':
             send_fmt = send_data[1:].lower()
             if send_fmt == 'exit':
-                if confirm('Exit client'):
+                if confirm('Exit client') == 1:
                     s.send('##EXIT'.encode())
                     s.close()
                     break
@@ -92,7 +83,7 @@ while True:
         reply = s.recv(4096).decode()
         '''
         If the message returned from the server does not match the one sent,
-         print the message returned by the server.
+        print the message returned by the server.
         '''
         if reply != send_data:
             print(reply)

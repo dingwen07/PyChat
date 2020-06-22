@@ -3,9 +3,11 @@ This is the client side of PyChat
 This is the receiver part of the client
 """
 
-import sys
-import socket
 import json
+import socket
+import threading
+
+from win10toast import ToastNotifier
 
 try:
     from mylibs import *
@@ -13,8 +15,15 @@ except ImportError:
     from .mylibs import *
 
 
+class MyToastNotifier(ToastNotifier):
+
+    def on_destroy(self, hwnd, msg, wparam, lparam):
+        pass
+
+
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
+toaster = MyToastNotifier()
 
 s = socket.socket()
 
@@ -70,6 +79,9 @@ while True:
             s.send('RX ACTIVE'.encode())
             continue
         print(rx_data)
+        toast_data = rx_data.split(':', 1)
+        if len(toast_data) == 2:
+            toaster.show_toast(title=toast_data[0], msg=toast_data[1], duration=3, threaded=True)
     except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
         print('Server disconnected.')
         s.close()

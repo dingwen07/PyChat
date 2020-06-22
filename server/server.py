@@ -1,38 +1,14 @@
 """
 This is the server side of PyChat
-
-Requirements: {
-    root user privilege (Linux)
-    python3
-    directory: ./credentials
-    files: 
-        ./config.json
-            example: 
-                {
-                    "Port": 233,
-                    "Auth": false,
-                    "AllowNickname": true,
-                    "MessageLogFile": "./message-log.json",
-                    "CredentialFolder": "./credentials/",
-                    "WelcomeMessage": "Welcome to PyChat Server!"
-                }
-        ./message-log.json
-            example: 
-                {"Message": []}
-}
-
-Run:
-    python3 server.py
 """
 
-import datetime
 import hashlib
 import json
-import sqlite3
 import multiprocessing
 import os
 import random
 import socket
+import sqlite3
 import time
 
 try:
@@ -47,6 +23,7 @@ current_milli_time = lambda: int(round(time.time() * 1000))
 
 # Detect db
 if not os.path.exists('server.db'):
+    print('Creating database...')
     db = sqlite3.connect('server.db')
     db_cursor = db.cursor()
     db_cursor.execute('''CREATE TABLE "clients" (
@@ -70,6 +47,7 @@ else:
 
 # Detect and create default config file
 if not os.path.exists(CONFIG_FILE):
+    print('Creating config file...')
     with open(CONFIG_FILE, 'w') as dump_file:
         dump_data = {
             "Port": 233,
@@ -116,17 +94,22 @@ def sender_main(cnn, addr):
         request = cnn.recv(1024).decode()
         if request == 'NICK_ON':
             use_nickname = True
-            print(client_address + ' Nickname status=' + str(use_nickname))
+            print(client_address + ' use_nickname=' + str(use_nickname))
             nickname = cnn.recv(1024).decode()
-            nickname = nickname.strip('#').strip('<').strip('>')
-            print(client_address + ' Nickname=' + nickname)
+            nickname = nickname.strip('#').strip('<').strip('>').strip(':')
+            print(client_address + ' nickname=' + nickname)
         else:
-            print(client_address + ' Nickname status=' + str(use_nickname))
+            print(client_address + ' use_nickname=' + str(use_nickname))
     else:
         cnn.send('NICK_REJECTED'.encode())
 
     # Generate a credential to authenticate the receiver
-    db_cursor.execute('''INSERT INTO "main"."clients"("address","name","code","valid") VALUES (NULL,NULL,NULL,1);''')
+    try:
+        db_cursor.execute('''INSERT INTO "main"."clients"("address","name","code","valid") VALUES (NULL,NULL,NULL,1);''')
+    except Exception:
+        cnn.send('ERROR,ERROR'.encode())
+        cnn.close()
+        exit()
     client_id = db_cursor.lastrowid
     client_credential_pre = str(time.time()) + str(client_id) + str(random.randint(100000, 655360))
     client_credential = hashlib.sha512(client_credential_pre.encode()).hexdigest()
@@ -162,10 +145,14 @@ def sender_main(cnn, addr):
             # Generate message ID
             message_time = current_milli_time()
             message_content = request
-            db_cursor.execute('''
-                                INSERT INTO "main"."messages"
-                                ("client", "time", "content")
-                                VALUES (?, ?, ?);''', (client_id, message_time, message_content))
+            try:
+                db_cursor.execute('''
+                                    INSERT INTO "main"."messages"
+                                    ("client", "time", "content")
+                                    VALUES (?, ?, ?);''', (client_id, message_time, message_content))
+            except Exception:
+                cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
+                continue
             message_id = db_cursor.lastrowid
             db.commit()
 
@@ -220,10 +207,66 @@ def sender_main(cnn, addr):
                     user_cmd = ' '.join(filter(lambda x: x, request_cmd_server_fmt.split(' '))).split(' ')
                     print('SERVER COMMAND')
                     print(user_cmd)
-                    if user_cmd[0] == 'exit':
-                        db.close()
-                        db_cursor.close()
-                        os._exit(0)
+                    if len(user_cmd) > 2 and user_cmd[0] == 'pause':
+                        try:
+                            pause_time = int(user_cmd[1])
+                            resume_time = int(user_cmd[2])
+                        except Exception:
+                            cnn.send('INVALID COMMAND'.encode())
+                            continue
+                        finally:
+                            message_time = current_milli_time()
+                            if resume_time > 0:
+                                message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE FOR {} SECONDS!'.format(pause_time, resume_time)
+                            else:
+                                message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE UNTIL IT IS RESUMED!'.format(pause_time)
+                            db_cursor.execute('''
+                                                INSERT INTO "main"."messages"
+                                                ("client", "time", "content")
+                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
+                            db.commit()
+                            time.sleep(pause_time)
+                            message_time = current_milli_time()
+                            message_content = 'SERVER PAUSED!'.format(pause_time, resume_time)
+                            db_cursor.execute('''
+                                                INSERT INTO "main"."messages"
+                                                ("client", "time", "content")
+                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
+                            db.commit()
+                            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
+                            print('SERVER PAUSED')
+                            if resume_time > 0:
+                                time.sleep(resume_time)
+                            else:
+                                while request != 'resume':
+                                    cnn.send('SERVER PAUSED, SEND "RESUME" TO RESUME'.encode())
+                                    try:
+                                        request = cnn.recv(4096).decode().lower()
+                                    except Exception:
+                                        print(client_address + ' Disconnected (Unexpected)')
+                                        while True:
+                                            print('WARN: SERVICE TERMINATED!')
+                                            message_time = current_milli_time()
+                                            message_content = 'SERVICE TERMINATED, YOU MAY DISCONNECT NOW'.format(pause_time, resume_time)
+                                            db_cursor.execute('''
+                                                                INSERT INTO "main"."messages"
+                                                                ("client", "time", "content")
+                                                                VALUES (?, ?, ?);''',
+                                                              (0, message_time, message_content))
+                                            db.commit()
+                                            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
+                                            time.sleep(60)
+                            db.commit()
+                            message_time = current_milli_time()
+                            message_content = 'SERVER RESUMED!'.format(pause_time, resume_time)
+                            db_cursor.execute('''
+                                                INSERT INTO "main"."messages"
+                                                ("client", "time", "content")
+                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
+                            db.commit()
+                            print('SERVER RESUMED')
+                            cnn.send('SERVER RESUMED'.encode())
+                            continue
                     elif user_cmd[0] == 'kick' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
                         print(target_client_id)
@@ -431,6 +474,7 @@ if __name__ == '__main__':
     print(load_conf)
 
     # Invalidate all credentials
+    print('Invalidating credentials...')
     db_cursor.execute('''UPDATE "clients" SET "valid" = 0;''')
     db.commit()
 
@@ -442,6 +486,8 @@ if __name__ == '__main__':
     s.listen(5)
 
     sender_holder = Holder(0.2, 4, 0.2, 0.1)
+
+    print('Server started!')
 
     while True:
         try:
@@ -455,7 +501,7 @@ if __name__ == '__main__':
             m.daemon = True
             # Initiate a subprocess
             m.start()
-            sender_holder.evoke()
+            # sender_holder.evoke()
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             pass
