@@ -17,14 +17,15 @@ except ImportError:
     from .holder import Holder
 
 CONFIG_FILE = './config.json'
+DATABASE_FILE = './server.db'
 HOST = socket.gethostname()
 
 current_milli_time = lambda: int(round(time.time() * 1000))
 
 # Detect db
-if not os.path.exists('server.db'):
+if not os.path.exists(DATABASE_FILE):
     print('Creating database...')
-    db = sqlite3.connect('server.db')
+    db = sqlite3.connect(DATABASE_FILE)
     db_cursor = db.cursor()
     db_cursor.execute('''CREATE TABLE "clients" (
                             "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
@@ -42,7 +43,7 @@ if not os.path.exists('server.db'):
                             );''')
     db_cursor.execute('''INSERT INTO "main"."clients" ("id", "address", "name", "code", "valid") VALUES ('0', '0.0.0.0', '<SERVER>', '', '0');''')
 else:
-    db = sqlite3.connect('server.db')
+    db = sqlite3.connect(DATABASE_FILE)
     db_cursor = db.cursor()
 
 # Detect and create default config file
