@@ -28,45 +28,14 @@ Run:
 import datetime
 import hashlib
 import json
-import sqlite3
 import multiprocessing
 import os
 import random
 import socket
 import time
 
-try:
-    from holder import Holder
-except ImportError:
-    from .holder import Holder
-
 CONFIG_FILE = './config.json'
 HOST = socket.gethostname()
-
-current_milli_time = lambda: int(round(time.time() * 1000))
-
-# Detect db
-if not os.path.exists('server.db'):
-    db = sqlite3.connect('server.db')
-    db_cursor = db.cursor()
-    db_cursor.execute('''CREATE TABLE "clients" (
-                            "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-                            "address"	TEXT,
-                            "name"	TEXT,
-                            "code"	TEXT,
-                            "valid"	INTEGER
-                            );''')
-    db_cursor.execute('''CREATE TABLE "messages" (
-                            "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
-                            "client"	INTEGER NOT NULL,
-                            "time"  INTEGER NOT NULL,
-                            "content"	TEXT,
-                            FOREIGN KEY("client") REFERENCES "clients"("id")
-                            );''')
-    db_cursor.execute('''INSERT INTO "main"."clients" ("id", "address", "name", "code", "valid") VALUES ('0', '0.0.0.0', '<SERVER>', '', '0');''')
-else:
-    db = sqlite3.connect('server.db')
-    db_cursor = db.cursor()
 
 # Detect and create default config file
 if not os.path.exists(CONFIG_FILE):
@@ -86,8 +55,16 @@ with open(CONFIG_FILE, 'r') as load_file:
 port = load_conf["Port"]
 rx_port = port + 1
 AllowNickname = load_conf["AllowNickname"]
+MessageLogFile = load_conf["MessageLogFile"]
+CredentialFolder = load_conf["CredentialFolder"]
 WelcomeMessage = load_conf["WelcomeMessage"]
-
+# Detect and create default message log file and credential folder
+if not os.path.exists(MessageLogFile):
+    with open(MessageLogFile, 'w') as dump_file:
+        dump_data = {"Message": []}
+        json.dump(dump_data, dump_file)
+if not os.path.exists(CredentialFolder):
+    os.makedirs(CredentialFolder)
 
 def sender_main(cnn, addr):
     """sender communication
@@ -109,7 +86,7 @@ def sender_main(cnn, addr):
     nickname = ''
     print(client_address + ' Connected')
 
-    # Receive nickname from the client
+    # Receive  nickname from the client
     use_nickname = False
     if load_conf["AllowNickname"]:
         cnn.send('NICK'.encode())
@@ -118,7 +95,7 @@ def sender_main(cnn, addr):
             use_nickname = True
             print(client_address + ' Nickname status=' + str(use_nickname))
             nickname = cnn.recv(1024).decode()
-            nickname = nickname.strip('#').strip('<').strip('>')
+            nickname = nickname.strip('#')
             print(client_address + ' Nickname=' + nickname)
         else:
             print(client_address + ' Nickname status=' + str(use_nickname))
@@ -126,31 +103,23 @@ def sender_main(cnn, addr):
         cnn.send('NICK_REJECTED'.encode())
 
     # Generate a credential to authenticate the receiver
-    db_cursor.execute('''INSERT INTO "main"."clients"("address","name","code","valid") VALUES (NULL,NULL,NULL,1);''')
-    client_id = db_cursor.lastrowid
-    client_credential_pre = str(time.time()) + str(client_id) + str(random.randint(100000, 655360))
+    client_id = hashlib.sha256(client_address.encode()).hexdigest()
+    client_credential_pre = str(datetime.datetime.now()) + client_address + str(random.randint(100000, 655360))
     client_credential = hashlib.sha512(client_credential_pre.encode()).hexdigest()
-    client_credential_send = str(client_id) + ',' + client_credential
+    client_credential_send = client_id + ',' + client_credential
     print(client_address + ' ' + str(client_credential_send.split(',')))
     # Send the credential to the sender
     cnn.send(client_credential_send.encode())
-    # Dump the credential to db
-    db_cursor.execute('''
-                        UPDATE "main"."clients"
-                        SET "address"=?, "name"=?, "code"=?
-                        WHERE "_rowid_"=?;
-                        ''', (addr[0]+','+str(addr[1]), nickname, client_credential, client_id))
-    message_time = current_milli_time()
-    if use_nickname:
-        client_alias = nickname
-    else:
-        client_alias = str(addr)
-    message_content = client_alias + ' ' + 'Connected'
-    db_cursor.execute('''
-                        INSERT INTO "main"."messages"
-                        ("client", "time", "content")
-                        VALUES (?, ?, ?);''', (0, message_time, message_content))
-    db.commit()
+    # Dump the credential to local file
+    dump_data = {
+        'id': client_id,
+        'address': addr,
+        'name': nickname,
+        'code': client_credential,
+        'valid': True
+    }
+    with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
+        json.dump(dump_data, dump_file)
 
     # Create a loop to receive and process messages
     while True:
@@ -159,22 +128,19 @@ def sender_main(cnn, addr):
             request = cnn.recv(4096).decode()
             print(client_address + ': ' + request)
 
+
             # Generate message ID
-            message_time = current_milli_time()
+            message_time = str(datetime.datetime.now())
+            message_counter = message_counter + 1
             message_content = request
-            db_cursor.execute('''
-                                INSERT INTO "main"."messages"
-                                ("client", "time", "content")
-                                VALUES (?, ?, ?);''', (client_id, message_time, message_content))
-            message_id = db_cursor.lastrowid
-            db.commit()
+            message_id_pre = message_time + client_address + str(message_counter) + message_content
+            message_id = hashlib.sha256(message_id_pre.encode()).hexdigest()
 
             # Validate credentials
             try:
-                load_credential = db_cursor.execute('''SELECT "id", "code", "valid"
-                                                        FROM "main"."clients"
-                                                        WHERE "id" = ?''', (client_id,)).fetchall()[0]
-                if not (load_credential[2]):
+                with open(CredentialFolder + client_id + ".json", 'r') as load_file:
+                    load_credential = json.load(load_file)
+                if not (load_credential['valid']):
                     print(client_address + ' Rejected (Invalid Credential)')
                     cnn.send('Invalid Credential'.encode())
                     cnn.close()
@@ -190,24 +156,26 @@ def sender_main(cnn, addr):
                 if request[0:2] == '##' and request[2] != '#':
                     # Session command
                     request_cmd_session_fmt = request.lower()[2:].strip()
-                    user_cmd = ' '.join(filter(lambda x: x, request_cmd_session_fmt.split(' '))).split(' ')
-                    if user_cmd[0] == 'exit':
+                    if request_cmd_session_fmt == 'exit':
                         print(client_address + ' Disconnected')
-                        db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
-                        db.commit()
+                        with open(CredentialFolder + client_id + ".json", 'r') as load_file:
+                            load_credential = json.load(load_file)
+                        load_credential['valid'] = False
+                        with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
+                            json.dump(load_credential, dump_file)
                         cnn.close()
                         return 0
-                    elif user_cmd[0] == 'welcome':
+                    elif request_cmd_session_fmt == 'welcome':
                         cnn.send(WelcomeMessage.encode())
-                    elif len(user_cmd) > 1 and user_cmd[0] == 'nick':
-                        if user_cmd[1] == 'get':
+                    elif len(request_cmd_session_fmt) > 5 and request_cmd_session_fmt[0:5] == 'nick ':
+                        if request_cmd_session_fmt[5:] == 'get':
                             if use_nickname:
                                 cnn.send(nickname.encode())
                             else:
                                 cnn.send('#NICKNAME NOT SET#'.encode())
-                        elif len(user_cmd) > 2 and user_cmd[1] == 'set':
+                        elif len(request_cmd_session_fmt) > 9 and request_cmd_session_fmt[5:9] == 'set ':
                             use_nickname = True
-                            nickname = user_cmd[2].strip('#')
+                            nickname = request[11:].strip('#')
                             cnn.send('NICKNAME SET'.encode())
                         else:
                             cnn.send('INVALID COMMAND'.encode())
@@ -217,36 +185,45 @@ def sender_main(cnn, addr):
                 elif len(request.strip()) > 3 and request[0:3] == '###':
                     # Server command
                     request_cmd_server_fmt = request.lower()[3:].strip()
-                    user_cmd = ' '.join(filter(lambda x: x, request_cmd_server_fmt.split(' '))).split(' ')
                     print('SERVER COMMAND')
-                    print(user_cmd)
-                    if user_cmd[0] == 'exit':
-                        db.close()
-                        db_cursor.close()
+                    if request_cmd_server_fmt == 'exit':
                         os._exit(0)
-                    elif user_cmd[0] == 'kick' and len(user_cmd) > 1:
-                        target_client_id = user_cmd[1]
+                    elif request_cmd_server_fmt[0:4] == 'kick' and len(request_cmd_server_fmt) > 4 and \
+                            request_cmd_server_fmt[4] == ' ':
+                        target_client_id = request_cmd_server_fmt[5:]
                         print(target_client_id)
                         try:
-                            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (target_client_id,))
-                            db.commit()
+                            with open(CredentialFolder + target_client_id + ".json", 'r') as load_file:
+                                load_target_credential = json.load(load_file)
+                            load_target_credential['valid'] = False
+                            with open(CredentialFolder + target_client_id + ".json", 'w') as dump_file:
+                                json.dump(load_target_credential, dump_file)
                             cnn.send('KICKED'.encode())
                         except Exception:
                             cnn.send('CLIENT NOT FOUND'.encode())
-                        continue
-                    elif len(user_cmd) > 2 and user_cmd[0] == 'get':
-                        if user_cmd[1] == 'id':
-                            target_name = user_cmd[2]
-                            target_style = '%' + target_name + '%'
-                            target_list = db_cursor.execute('''SELECT "id", "address", "name"
-                                                                FROM "clients"
-                                                                WHERE "valid" = 1 AND ("address" LIKE ? OR "name" LIKE ?);
-                                                            ''', (target_style, target_style)).fetchall()
-                            target_str = 'RES:\n'
+                    elif len(request_cmd_server_fmt) > 3 and request_cmd_server_fmt[0:4] == 'get ':
+                        if len(request_cmd_server_fmt) > 7 and request_cmd_server_fmt[4:7] == 'id ':
+                            target_name = request_cmd_server_fmt[7:]
+                            target_list = []
+                            credential_path = './credentials'
+                            credential_files = os.listdir(credential_path)
+                            for file_name in credential_files:
+                                if not os.path.isdir(file_name):
+                                    with open(CredentialFolder + file_name, 'r') as load_file:
+                                        load_credential = json.load(load_file)
+                                    if (target_name == '*' or target_name == load_credential['code'] or target_name ==
+                                        load_credential['address'][0] or target_name == str(
+                                                    load_credential['address'][1]) or target_name in load_credential[
+                                            'name'].lower()) and load_credential['valid']:
+                                        target_list.append([load_credential['id'],
+                                                            (load_credential['address'][0],
+                                                             load_credential['address'][1]),
+                                                            load_credential['name']])
+                            target_str = ''
                             for item in target_list:
                                 target_str = target_str + str(item) + '\n'
                             cnn.send(target_str.strip('\n').encode())
-                            continue
+                            # cnn.send(str(target_list).encode())
                         else:
                             cnn.send('INVALID COMMAND'.encode())
                     else:
@@ -265,8 +242,7 @@ def sender_main(cnn, addr):
             # print(client_address + ': ' + request)
 
             # The received message is returned to the client receiver to help the client confirm that the message has
-            # been delivered.
-            time.sleep(0.1)
+            # been delivered. 
             cnn.send(request.encode())
 
             # Determine the value of "client_name" depending on whether a nickname is used
@@ -275,10 +251,37 @@ def sender_main(cnn, addr):
             else:
                 client_name = client_address
 
+            '''
+            Dump the message to a local temporary file.
+            Let the process responsible for communicating with the client receiver read.
+            '''
+            with open("./temp.json", 'w') as dump_file:
+                dump_data = {
+                    "message_id": message_id,
+                    "message_time": message_time,
+                    "client_id": client_id,
+                    "client_address": addr,
+                    "client_name": client_name,
+                    "message_content": message_content
+                }
+                json.dump(dump_data, dump_file)
+
+            # Dump the message to log file
+            messageInList = [message_id, message_time, client_id, addr, client_name, message_content]
+            with open(MessageLogFile, 'r') as load_file:
+                load_log = json.load(load_file)
+            dump_log = load_log
+            dump_log["Message"].append(messageInList)
+            with open(MessageLogFile, 'w') as dump_file:
+                json.dump(dump_log, dump_file)
+
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             print(client_address + ' Disconnected (Unexpected)')
-            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
-            db.commit()
+            with open(CredentialFolder + client_id + ".json", 'r') as load_file:
+                load_credential = json.load(load_file)
+            load_credential['valid'] = False
+            with open(CredentialFolder + client_id + ".json", 'w') as dump_file:
+                json.dump(load_credential, dump_file)
             cnn.close()
             return 0
         except Exception as e:
@@ -334,6 +337,7 @@ def receiver_main(rxcnn, addr):
 
     client_address = str(addr)
 
+
     print(client_address + ' RX Connected')
     # Receive credential from the client
     rxcnn.send('UNBLOCK'.encode())
@@ -344,20 +348,16 @@ def receiver_main(rxcnn, addr):
 
     # Validate credentials
     try:
-        load_credential = db_cursor.execute('''SELECT "id", "address", "code", "valid"
-                                                FROM "main"."clients"
-                                                WHERE "id" = ?''', (client_id,)).fetchall()[0]
-        if not ((load_credential[2] == client_credential) and load_credential[3] and (
-                load_credential[1].split(',')[0] == addr[0])):
-            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
-            db.commit()
+        with open(CredentialFolder + client_id + ".json", 'r') as load_file:
+            load_credential = json.load(load_file)
+        if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
+                load_credential['address'][0] == addr[0])):
             print(client_address + ' RX Rejected (Invalid Credential)')
             rxcnn.send('Invalid Credential'.encode())
             rxcnn.close()
             return 1
     except:
         print(client_address + ' RX Rejected (Invalid Credential)')
-        print('EXCEPT')
         rxcnn.send('Invalid Credential'.encode())
         rxcnn.close()
         return 1
@@ -366,31 +366,25 @@ def receiver_main(rxcnn, addr):
     rxcnn.send(WelcomeMessage.encode())
 
     # Create a loop to send messages
-    try:
-        message = db_cursor.execute('''SELECT "id", "client", "time", "content"
-                                FROM messages ORDER BY id DESC LIMIT 1;''').fetchall()[0]
-        temp_message_id = message[0]
-        message_id = temp_message_id
-    except:
-        pass
     while True:
         try:
             # Wait until a new message is detected
+            with open("./temp.json", 'r') as load_file:
+                load_msg = json.load(load_file)
+            temp_message_id = load_msg['message_id']
+            message_id = temp_message_id
             while temp_message_id == message_id:
-                time.sleep(0.05)
-                message = db_cursor.execute('''SELECT "id", "client", "time", "content"
-                                                FROM messages ORDER BY id DESC LIMIT 1;''').fetchall()[0]
-                message_id = message[0]
-            temp_message_id = message_id
-            client = db_cursor.execute('''SELECT "id", "address", "name"
-                                            FROM clients WHERE "id"=?;''', (message[1],)).fetchall()[0]
+                time.sleep(0.1)
+                with open("./temp.json", 'r') as load_file:
+                    load_msg = json.load(load_file)
+                message_id = load_msg['message_id']
+
             # Validate credentials
             try:
-                load_credential = db_cursor.execute('''SELECT "id", "address", "code", "valid"
-                                                        FROM "main"."clients"
-                                                        WHERE "id" = ?''', (client_id,)).fetchall()[0]
-                if not ((load_credential[2] == client_credential) and load_credential[3] and (
-                        load_credential[1].split(',')[0] == addr[0])):
+                with open(CredentialFolder + client_id + ".json", 'r') as load_file:
+                    load_credential = json.load(load_file)
+                if not ((load_credential['code'] == client_credential) and load_credential['valid'] and (
+                        load_credential['address'][0] == addr[0])):
                     print(client_address + ' RX Rejected (Invalid Credential)')
                     rxcnn.send('Invalid Credential'.encode())
                     rxcnn.close()
@@ -402,15 +396,9 @@ def receiver_main(rxcnn, addr):
                 return 1
 
             # Send message
-            if message[3][0] == '#':
-                continue
-            if client[2] == "":
-                client_name = str((client[1].split(',')[0], int(client[1].split(',')[1])))
-            else:
-                client_name = client[2]
-            message_send = client_name + ': ' + message[3]
-            rxcnn.send(message_send.encode())
-            print('Local==>' + client_address + ' RX Send: ' + message_send)
+            messageSend = load_msg['client_name'] + ': ' + load_msg['message_content']
+            rxcnn.send(messageSend.encode())
+            print('Local==>' + client_address + ' RX Send: ' + messageSend)
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             print(client_address + ' RX Disconnected (Unexpected)')
@@ -431,8 +419,15 @@ if __name__ == '__main__':
     print(load_conf)
 
     # Invalidate all credentials
-    db_cursor.execute('''UPDATE "clients" SET "valid" = 0;''')
-    db.commit()
+    credential_path = './credentials'
+    credential_files = os.listdir(credential_path)
+    for file_name in credential_files:
+        if not os.path.isdir(file_name):
+            with open(CredentialFolder + file_name, 'r') as load_file:
+                credential = json.load(load_file)
+            credential['valid'] = False
+            with open(CredentialFolder + file_name, 'w') as dump_file:
+                json.dump(credential, dump_file)
 
     # Create an object for establishing socket communication
     rxm = multiprocessing.Process(target=receiver_launcher, args=())
@@ -440,8 +435,6 @@ if __name__ == '__main__':
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((HOST, port))
     s.listen(5)
-
-    sender_holder = Holder(0.2, 4, 0.2, 0.1)
 
     while True:
         try:
@@ -455,7 +448,6 @@ if __name__ == '__main__':
             m.daemon = True
             # Initiate a subprocess
             m.start()
-            sender_holder.evoke()
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             pass

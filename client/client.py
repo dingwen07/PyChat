@@ -27,6 +27,7 @@ if port == '':
 else:
     port = int(port)
 rx_port = port + 1
+print('Connecting to ' + host + ':' + str(port))
 use_nickname = False
 nickname = ''
 if confirm('Use a nickname.') == 1:
