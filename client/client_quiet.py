@@ -57,8 +57,7 @@ print('')
 # Create a loop to send messages to the server
 while True:
     try:
-        send_data = random.randint(0, 9)
-        time.sleep(100)
+        send_data = input(">>>")
         if send_data == '':
             continue
         elif len(send_data) > 1 and send_data[0] == '#' and send_data[1] != '#':

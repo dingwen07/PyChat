@@ -118,7 +118,7 @@ def receiver_start(credential_id, credential_code):
 
 
 if __name__ == "__main__":
-    for i in range(1, 100000):
+    for i in range(1, 10000):
         print(i)
         sender_m = multiprocessing.Process(target=sender_start, args=(False, True,))
         # sender_m.daemon = True

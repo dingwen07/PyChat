@@ -44,6 +44,7 @@ if not os.path.exists(CONFIG_FILE):
         dump_data = {
             "Port": 233,
             "Auth": False,
+            "AllowAdminCommands": True,
             "AllowNickname": True,
             "MessageLogFile": "./message-log.json",
             "CredentialFolder": "./credentials/",

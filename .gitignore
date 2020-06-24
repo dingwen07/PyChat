@@ -141,6 +141,7 @@ dmypy.json
 client/credential.json
 server/config.json
 server/server.db
+server/server.db-journal
 server/message-log.json
 server/temp.json
 server/credentials/*
