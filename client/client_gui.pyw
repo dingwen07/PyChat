@@ -8,18 +8,22 @@ import tkinter as tk
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
 
-def connect_btn(host, port, event=None):
-    connect(host, port)
+def connect_btn(host, port, nickname, event=None):
+    connect(host, port, nickname)
 
 def connect_win_back(connect_win):
-    connect_win.destroy()
-    root_win.deiconify()
+    try:
+        connect_win.destroy()
+        root_win.deiconify()
+    except Exception as e:
+        print(e)
 
-def connect(host, port):
+def connect(host, port, nickname):
     root_win.withdraw()
     connect_win = tk.Tk()
     connect_win.geometry('400x250')
     connect_win.title('PyChat Client - Connecting')
+    connect_win.protocol('WM_DELETE_WINDOW', lambda: connect_win_back(connect_win))
     var_cnn_msg = tk.StringVar(connect_win)
     info_lbl = tk.Message(connect_win, width=200, textvariable=var_cnn_msg)
     info_lbl.pack(side='top', anchor='nw', padx=5, pady=5)
@@ -38,7 +42,11 @@ def connect(host, port):
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
         if nkr == 'NICK':
-            s.send('NICK_OFF'.encode())
+            if nickname != '':
+                s.send('NICK_ON'.encode())
+                s.send(nickname.encode())
+            else:
+                s.send('NICK_OFF'.encode())
         client_credential_recv = s.recv(2048).decode()
         client_credential = client_credential_recv.split(',')
 
@@ -65,7 +73,10 @@ def connect(host, port):
         t.daemon = True
         t.start()
         connect_win.destroy()
-    except:
+        return 0
+    except Exception as e:
+        cnn_msg += str(e) + '\n'
+        var_cnn_msg.set(cnn_msg)
         cnn_msg += 'Failed to connect...\n'
         var_cnn_msg.set(cnn_msg)
         win_close_btm = tk.Button(connect_win, text='Close', command=lambda: connect_win_back(connect_win))
@@ -129,16 +140,16 @@ def recever(s, msg_box):
                     msg_box.insert('end', '\n')
                     msg_box.yview('end')
                 msg_box.config(state='disabled')
-        except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
+        except Exception:
             print('Server disconnected.')
             s.close()
             break
 
 
 def main(host, s, r):
+    # global main_win
     main_win = tk.Tk()
     main_win.title('PyChat Client - {}'.format(host))
-    # msg_box = tk.Listbox(main_win,font=('Arial',10), width=50)
     msg_box = tk.Text(main_win, font=('Arial',10), wrap='word', state='disabled', height=10, width=50)
     msg_box.pack(side='left', expand=True, fill='both')
     msg_box_sb = tk.Scrollbar(main_win, orient="vertical")
@@ -160,10 +171,13 @@ def main(host, s, r):
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
     main_win.mainloop()
-    root_win.destroy()
+    s.close()
+    r.close()
+    root_win.deiconify()
 
 
 if __name__ == "__main__":
+    global root_win
     root_win = tk.Tk()
     root_win.title('PyChat Client')
     #root_win.geometry('300x200')
@@ -186,11 +200,20 @@ if __name__ == "__main__":
     port_ent.pack(side='right', fill='x', expand=False, padx=5, pady=5)
     port_ent_frame.pack(fill='both')
 
-    connect_btm = tk.Button(root_win, text='Connect', command=lambda: connect_btn(var_host.get(), int(var_port.get())))
+    nick_ent_frame = tk.Frame(root_win)
+    nick_ent_lbl = tk.Label(nick_ent_frame, text='Nickname', font=('Arial', 12))
+    var_nick = tk.StringVar(value='')
+    nick_ent = tk.Entry(nick_ent_frame, show=None, font=('Arial', 12), textvariable=var_nick)
+    nick_ent_lbl.pack(side='left', fill='x', expand=False, padx=5, pady=5)
+    nick_ent.pack(side='right', fill='x', expand=False, padx=5, pady=5)
+    nick_ent_frame.pack(fill='both')
+
+    connect_btm = tk.Button(root_win, text='Connect', command=lambda: connect_btn(var_host.get(), int(var_port.get()), var_nick.get()))
     connect_btm.pack(expand=False, pady=10)
 
     root_win.bind('<Return>', lambda event=None: connect_btm.invoke())
     root_win.resizable(width=False, height=False)
     root_win.mainloop()
+    root_win.quit()
 
     sys.exit()

@@ -55,21 +55,21 @@ if not os.path.exists(DATABASE_FILE):
                             "name"	TEXT,
                             "code"	TEXT,
                             "valid"	INTEGER,
-                            "extra"	TEXT
+                            "meta"	TEXT
                             );''')
     db_cursor.execute('''CREATE TABLE "messages" (
                             "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
                             "client"	INTEGER NOT NULL,
                             "time"  INTEGER NOT NULL,
                             "content"	TEXT,
-                            "extra"	TEXT,
+                            "meta"	TEXT,
                             FOREIGN KEY("client") REFERENCES "clients"("id")
                             );''')
     db_cursor.execute('''CREATE TABLE "rules" (
                             "id"	INTEGER NOT NULL UNIQUE,
                             "type"	INTEGER NOT NULL,
                             "rule"	TEXT NOT NULL,
-                            "extra"	TEXT,
+                            "meta"	TEXT,
                             "comments"	TEXT,
                             PRIMARY KEY("id" AUTOINCREMENT)
                             );''')
@@ -193,7 +193,7 @@ def sender_main(cnn, addr):
 
             # Validate credentials
             try:
-                load_credential = db_cursor.execute('''SELECT "id", "code", "valid", "extra", "name"
+                load_credential = db_cursor.execute('''SELECT "id", "code", "valid", "meta", "name"
                                                         FROM "main"."clients"
                                                         WHERE "id" = ?''', (client_id,)).fetchall()[0]
                 if not (load_credential[2]):
@@ -207,11 +207,11 @@ def sender_main(cnn, addr):
                 cnn.close()
                 return 1
 
-            # Check extra
+            # Check meta
             if load_credential[3] is not None:
-                load_extra_data = json.loads(load_credential[3])
-                if 'mute' in load_extra_data and load_extra_data['mute'] > time.time():
-                    remain_mute_time = int(load_extra_data['mute'] - time.time())
+                load_meta_data = json.loads(load_credential[3])
+                if 'mute' in load_meta_data and load_meta_data['mute'] > time.time():
+                    remain_mute_time = int(load_meta_data['mute'] - time.time())
                     time.sleep(0.9)
                     cnn.send('YOU ARE NOT ALLOWED TO SEND MESSAGES IN {} SECONDS'.format(str(remain_mute_time)).encode())
                     continue
@@ -224,12 +224,12 @@ def sender_main(cnn, addr):
                 # Send message
                 message_time = current_milli_time()
                 message_content = request
-                extra_data = json.dumps({'nosend': True})
+                meta_data = json.dumps({'nosend': True})
                 try:
                     db_cursor.execute('''
                                         INSERT INTO "main"."messages"
-                                        ("client", "time", "content", "extra")
-                                        VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, extra_data))
+                                        ("client", "time", "content", "meta")
+                                        VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
                 except Exception:
                     cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
                     continue
@@ -272,14 +272,14 @@ def sender_main(cnn, addr):
                         else:
                             cnn.send('INVALID COMMAND'.encode())
                     elif len(user_cmd) > 2 and user_cmd[0] == 'dm':
-                        extra_data = json.dumps({'to': user_cmd[1], 'dm': True})
+                        meta_data = json.dumps({'to': user_cmd[1], 'dm': True})
                         message_time = current_milli_time()
                         message_content = user_cmd[2]
                         try:
                             db_cursor.execute('''
                                                 INSERT INTO "main"."messages"
-                                                ("client", "time", "content", "extra")
-                                                VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, extra_data))
+                                                ("client", "time", "content", "meta")
+                                                VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
                             cnn.send('MESSAGE SENT'.encode())
                         except Exception:
                             cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
@@ -295,7 +295,7 @@ def sender_main(cnn, addr):
                                 if new_uid == 0:
                                     AllowAdminCommands = True
                                     AllowNickname = True
-                                extra_data = json.dumps({'to': '#'+str(client_id),
+                                meta_data = json.dumps({'to': '#'+str(client_id),
                                                          'su': True,
                                                          'id': new_uid
                                                          })
@@ -304,9 +304,9 @@ def sender_main(cnn, addr):
                                     message_content = '#SU'
                                     db_cursor.execute('''
                                                         INSERT INTO "main"."messages"
-                                                        ("client", "time", "content", "extra")
+                                                        ("client", "time", "content", "meta")
                                                         VALUES (?, ?, ?, ?);''',
-                                                      (client_id, message_time, message_content, extra_data))
+                                                      (client_id, message_time, message_content, meta_data))
                                     db_cursor.execute('''UPDATE "main"."clients" SET "address"=? WHERE "_rowid_"=?;''',
                                                       (addr[0]+','+str(addr[1]), new_uid))
                                 except Exception:
@@ -411,10 +411,10 @@ def sender_main(cnn, addr):
                         target_client_id = user_cmd[1]
                         try:
                             mute_time = int(user_cmd[2])
-                            extra_data = json.dumps({'mute': time.time()+mute_time})
+                            meta_data = json.dumps({'mute': time.time()+mute_time})
                             try:
-                                db_cursor.execute('''UPDATE "main"."clients" SET "extra"=? WHERE "_rowid_"=?;''',
-                                                  (extra_data, target_client_id,))
+                                db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
+                                                  (meta_data, target_client_id,))
                                 db.commit()
                                 cnn.send('MUTE'.encode())
                             except Exception:
@@ -425,10 +425,10 @@ def sender_main(cnn, addr):
                             continue
                     elif user_cmd[0] == 'unmute' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
-                        extra_data = json.dumps({'mute': time.time()})
+                        meta_data = json.dumps({'mute': time.time()})
                         try:
-                            db_cursor.execute('''UPDATE "main"."clients" SET "extra"=? WHERE "_rowid_"=?;''',
-                                              (extra_data, target_client_id,))
+                            db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
+                                              (meta_data, target_client_id,))
                             db.commit()
                             cnn.send('UNMUTE'.encode())
                         except Exception:
@@ -602,7 +602,7 @@ def receiver_main(rxcnn, addr):
             # Wait until a new message is detected
             while temp_message_id == message_id:
                 time.sleep(0.05)
-                message = db_cursor.execute('''SELECT "id", "client", "time", "content", "extra"
+                message = db_cursor.execute('''SELECT "id", "client", "time", "content", "meta"
                                                 FROM messages ORDER BY id DESC LIMIT 1;''').fetchall()[0]
                 message_id = message[0]
             temp_message_id = message_id
@@ -628,9 +628,9 @@ def receiver_main(rxcnn, addr):
             # Send message
             message_content = message[3]
             if message[4] is not None:
-                load_extra = json.loads(message[4])
-                if 'to' in load_extra and (str(load_extra['to']) in ['#'+str(client_id), str(load_credential[4]).lower()] or str(message[1]) == client_id):
-                    if 'dm' in load_extra and load_extra['dm'] == True:
+                load_meta = json.loads(message[4])
+                if 'to' in load_meta and (str(load_meta['to']) in ['#'+str(client_id), str(load_credential[4]).lower()] or str(message[1]) == client_id):
+                    if 'dm' in load_meta and load_meta['dm'] == True:
                         if message_content == '#':
                             continue
                         if client[2] == "":
@@ -640,8 +640,8 @@ def receiver_main(rxcnn, addr):
                         message_send = '<DM> ' + client_alias + ': ' + message_content
                         rxcnn.send(message_send.encode())
                         print('Local==>' + client_address + ' RX Send: ' + message_send)
-                    elif 'su' in load_extra:
-                        client_id = load_extra['id']
+                    elif 'su' in load_meta:
+                        client_id = load_meta['id']
                         load_credential = db_cursor.execute('''SELECT "id", "address", "code", "valid", "name"
                                                                                 FROM "main"."clients"
                                                                                 WHERE "id" = ?''',
