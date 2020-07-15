@@ -77,10 +77,10 @@ if not os.path.exists(DATABASE_FILE):
                             BEGIN
                                 UPDATE "clients" SET valid=1 WHERE id=new.id;
                             END;''')
-    db_cursor.execute('''CREATE  TRIGGER auto_set_name AFTER UPDATE OF "name" ON "clients" WHEN new.id==0
+    db_cursor.execute('''CREATE TRIGGER auto_set_name AFTER UPDATE OF "name" ON "clients" WHEN new.id==0
                             BEGIN
-                                UPDATE "clients" SET "name"=? WHERE id=new.id;
-                            END;''', ('<SERVER>',))
+                                UPDATE "clients" SET "name"="<SERVER>" WHERE id=new.id;
+                            END''')
     db_cursor.execute('''INSERT INTO "main"."clients" ("id", "address", "name", "code", "valid") VALUES ('0', '0.0.0.0', '<SERVER>', '', '1');''')
 
     db.commit()
@@ -346,59 +346,57 @@ def sender_main(cnn, addr):
                         except Exception:
                             cnn.send('INVALID COMMAND'.encode())
                             continue
-                        finally:
-                            message_time = current_milli_time()
-                            if resume_time > 0:
-                                message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE FOR {} SECONDS!'.format(pause_time, resume_time)
-                            else:
-                                message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE UNTIL IT IS RESUMED!'.format(pause_time)
-                            db_cursor.execute('''
-                                                INSERT INTO "main"."messages"
-                                                ("client", "time", "content")
-                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
-                            db.commit()
-                            time.sleep(pause_time)
-                            message_time = current_milli_time()
-                            message_content = 'SERVER PAUSED!'.format(pause_time, resume_time)
-                            db_cursor.execute('''
-                                                INSERT INTO "main"."messages"
-                                                ("client", "time", "content")
-                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
-                            db.commit()
-                            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
-                            print('SERVER PAUSED')
-                            if resume_time > 0:
-                                time.sleep(resume_time)
-                            else:
-                                while request != 'resume':
-                                    cnn.send('SERVER PAUSED, SEND "RESUME" TO RESUME'.encode())
-                                    try:
-                                        request = cnn.recv(4096).decode().lower()
-                                    except Exception:
-                                        print(client_address + ' Disconnected (Unexpected)')
-                                        while True:
-                                            print('WARN: SERVICE TERMINATED!')
-                                            message_time = current_milli_time()
-                                            message_content = 'SERVICE TERMINATED, YOU MAY DISCONNECT NOW'.format(pause_time, resume_time)
-                                            db_cursor.execute('''
-                                                                INSERT INTO "main"."messages"
-                                                                ("client", "time", "content")
-                                                                VALUES (?, ?, ?);''',
-                                                              (0, message_time, message_content))
-                                            db.commit()
-                                            db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
-                                            time.sleep(60)
-                            db.commit()
-                            message_time = current_milli_time()
-                            message_content = 'SERVER RESUMED!'.format(pause_time, resume_time)
-                            db_cursor.execute('''
-                                                INSERT INTO "main"."messages"
-                                                ("client", "time", "content")
-                                                VALUES (?, ?, ?);''', (0, message_time, message_content))
-                            db.commit()
-                            print('SERVER RESUMED')
-                            cnn.send('SERVER RESUMED'.encode())
-                            continue
+                        message_time = current_milli_time()
+                        if resume_time > 0:
+                            message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE FOR {} SECONDS'.format(pause_time, resume_time)
+                        else:
+                            message_content = 'THE SERVER WILL PAUSE AFTER {} SECONDS AND WILL REMAIN UNAVAILABLE UNTIL IT IS RESUMED'.format(pause_time)
+                        db_cursor.execute('''
+                                            INSERT INTO "main"."messages"
+                                            ("client", "time", "content")
+                                            VALUES (?, ?, ?);''', (0, message_time, message_content))
+                        db.commit()
+                        time.sleep(pause_time)
+                        message_time = current_milli_time()
+                        message_content = 'SERVER PAUSED'.format(pause_time, resume_time)
+                        db_cursor.execute('''
+                                            INSERT INTO "main"."messages"
+                                            ("client", "time", "content")
+                                            VALUES (?, ?, ?);''', (0, message_time, message_content))
+                        db.commit()
+                        db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
+                        print('SERVER PAUSED')
+                        if resume_time > 0:
+                            time.sleep(resume_time)
+                        else:
+                            while request != 'resume':
+                                cnn.send('SERVER PAUSED, SEND "RESUME" TO RESUME'.encode())
+                                try:
+                                    request = cnn.recv(4096).decode().lower()
+                                except Exception:
+                                    print(client_address + ' Disconnected (Unexpected)')
+                                    while True:
+                                        print('WARN: SERVICE TERMINATED!')
+                                        message_time = current_milli_time()
+                                        message_content = 'SERVICE TERMINATED, YOU MAY DISCONNECT NOW'.format(pause_time, resume_time)
+                                        db_cursor.execute('''
+                                                            INSERT INTO "main"."messages"
+                                                            ("client", "time", "content")
+                                                            VALUES (?, ?, ?);''', (0, message_time, message_content))
+                                        db.commit()
+                                        db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
+                                        time.sleep(60)
+                        db.commit()
+                        message_time = current_milli_time()
+                        message_content = 'SERVER RESUMED'.format(pause_time, resume_time)
+                        db_cursor.execute('''
+                                            INSERT INTO "main"."messages"
+                                            ("client", "time", "content")
+                                            VALUES (?, ?, ?);''', (0, message_time, message_content))
+                        db.commit()
+                        print('SERVER RESUMED')
+                        cnn.send('SERVER RESUMED'.encode())
+                        continue
                     elif user_cmd[0] == 'kick' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
                         print(target_client_id)
@@ -481,10 +479,6 @@ def sender_main(cnn, addr):
                 cnn.send('ACTIVE'.encode())
                 continue
 
-            # The received message is returned to the client receiver to help the client confirm that the message has
-            # been delivered.
-            cnn.send(request.encode())
-
             # Send message
             message_time = current_milli_time()
             message_content = request
@@ -493,10 +487,16 @@ def sender_main(cnn, addr):
                                     INSERT INTO "main"."messages"
                                     ("client", "time", "content")
                                     VALUES (?, ?, ?);''', (client_id, message_time, message_content))
-            except Exception:
+                db.commit()
+            except Exception as e:
+                db.rollback()
                 cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
                 continue
-            db.commit()
+
+
+            # The received message is returned to the client receiver to help the client confirm that the message has
+            # been delivered.
+            cnn.send(request.encode())
 
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
