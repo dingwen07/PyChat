@@ -5,6 +5,9 @@ This is the sender part of the client
 
 import json
 import socket
+import time
+import hashlib
+import struct
 
 try:
     from mylibs import *
@@ -13,6 +16,13 @@ except ImportError:
 
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
+
+client_info = {
+    'host': socket.gethostname(),
+    'appid': 1
+}
+
+current_milli_time = lambda: int(round(time.time() * 1000))
 
 # Ask the user about the server they need to connect to
 s = socket.socket()
@@ -33,34 +43,44 @@ use_nickname = confirm('Use a nickname')
 nickname = ''
 if use_nickname:
     nickname = input('Input your nickname: ')
-
+client_info['nickname'] = nickname
 
 # Try to connect to the server
 try:
     s.connect((host, port))
-    nkr = s.recv(1024).decode()
-    if nkr == 'NICK':
-        if use_nickname:
-            s.send('NICK_ON'.encode())
-            s.send(nickname.encode())
-        else:
-            s.send('NICK_OFF'.encode())
-    print('')
-    # Get credential from the server
-    client_credential_recv = s.recv(2048).decode()
-    client_credential = client_credential_recv.split(',')
-    new_data = {'server': host, 'port': port, 'id': client_credential[0], 'code': client_credential[1]}
+    server_data = json.loads(s.recv(1024).decode())
+    print(server_data)
+    s.send(json.dumps(client_info).encode())
+    if server_data['appid'] != client_info['appid']:
+        print('Not a PyChat Server!')
+        raise()
+
+    client_session_data = json.loads(s.recv(1024).decode())
+
+    try:
+        if not client_session_data['success']:
+            print('Server rejected connection.')
+            raise()
+        client_credential = client_session_data['credential']
+    except Exception:
+        print('Connection not successful.')
+        s.close()
+        input()
+        exit()
+
+    new_data = {'server': host, 'port': port, 'id': client_credential['id'], 'code': client_credential['code']}
     # Dump credential to local cache file
     with open(CLIENT_CREDENTIAL_FILE, 'w') as dump_file:
         json.dump(new_data, dump_file)
     print('Please save credential below to authenticate receiver...')
     print('ID:')
-    print(client_credential[0])
+    print(client_credential['id'])
     print('Access Code:')
-    print(client_credential[1])
+    print(client_credential['code'])
 
-except ConnectionRefusedError:
+except Exception:
     print('Unable to connect ' + "'" + host + "'.")
+    s.close()
     exit()
 
 print('')
@@ -68,6 +88,8 @@ print('')
 while True:
     try:
         send_data = input(">>>")
+        header = {}
+        header['time'] = current_milli_time()
         if send_data == '':
             continue
         elif len(send_data) > 1 and send_data[0] == '#' and send_data[1] != '#':
@@ -88,8 +110,17 @@ while True:
                 print('CLIENT: INVALID COMMAND')
                 print()
                 continue
+        header['size'] = len(send_data.encode())
+        header['sha256'] = hashlib.sha256(send_data.encode()).hexdigest()
+        s.send(json.dumps(header).encode())
+        header_size = s.recv(1024).decode()
         s.send(send_data.encode())
-        reply = s.recv(4096).decode()
+
+        # Get echo header
+        echo_header_byte = s.recv(1024).decode()
+        echo_header = json.loads(echo_header_byte)
+        s.send(str(len(echo_header)).encode())
+        reply = s.recv(echo_header['size']).decode()
         '''
         If the message returned from the server does not match the one sent,
          print the message returned by the server.

@@ -1,12 +1,25 @@
+import hashlib
 import json
 import socket
 import sys
 import time
+import struct
 import threading
 import tkinter as tk
 
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
+
+client_info = {
+    'host': socket.gethostname(),
+    'appid': 1
+}
+rx_client_info = {
+    'host': socket.gethostname(),
+    'appid': 1
+}
+
+current_milli_time = lambda: int(round(time.time() * 1000))
 
 def connect_btn(host, port, nickname, event=None):
     connect(host, port, nickname)
@@ -32,23 +45,33 @@ def connect(host, port, nickname):
     var_cnn_msg.set(cnn_msg)
     connect_win.update()
     try:
+        client_info['nickname'] = nickname
         s = socket.socket()
         s.connect((host, port))
         cnn_msg += 'Connected.\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
-        nkr = s.recv(1024).decode()
+        server_data = json.loads(s.recv(1024).decode())
         cnn_msg += 'Exchange info...\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
-        if nkr == 'NICK':
-            if nickname != '':
-                s.send('NICK_ON'.encode())
-                s.send(nickname.encode())
-            else:
-                s.send('NICK_OFF'.encode())
-        client_credential_recv = s.recv(2048).decode()
-        client_credential = client_credential_recv.split(',')
+        s.send(json.dumps(client_info).encode())
+        if server_data['appid'] != client_info['appid']:
+            print('Not a PyChat Server!')
+            raise()
+        
+        client_session_data = json.loads(s.recv(1024).decode())
+        
+        try:
+            if not client_session_data['success']:
+                print('Server rejected connection.')
+                raise()
+            client_credential = client_session_data['credential']
+        except Exception:
+            print('Connection not successful.')
+            s.close()
+            input()
+            exit()
 
         cnn_msg += 'Receiver connecting...\n'
         var_cnn_msg.set(cnn_msg)
@@ -61,11 +84,13 @@ def connect(host, port, nickname):
         cnn_msg += 'Exchange receiver info...\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
-        r.recv(1024)
-        r.send(client_credential[0].encode())
-        r.recv(1024)
-        r.send(client_credential[1].encode())
-        r.recv(1024)
+        server_data = json.loads(r.recv(1024).decode())
+        rx_client_info['id'] = client_credential['id']
+        rx_client_info['code'] = client_credential['code']
+        r.send(json.dumps(rx_client_info).encode())
+        if server_data['appid'] != rx_client_info['appid']:
+            print('Not a PyChat Server!')
+            exit()
         cnn_msg += 'Connection finished.\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
@@ -95,8 +120,17 @@ def sender(s, msg_box, msg_ent, send_btm):
         if message == '':
             return 0
         else:
+            header = {}
+            header['time'] = current_milli_time()
+            header['size'] = len(message.encode())
+            header['sha256'] = hashlib.sha256(message.encode()).hexdigest()
+            s.send(json.dumps(header).encode())
+            header_size = s.recv(1024).decode()
             s.send(message.encode())
-            reply = s.recv(8092).decode()
+            echo_header_byte = s.recv(1024).decode()
+            echo_header = json.loads(echo_header_byte)
+            s.send(str(len(echo_header)).encode())
+            reply = s.recv(echo_header['size']).decode()
             if reply != message:
                 if reply.find('\n') == -1:
                     msg_box.config(state='normal')
@@ -120,7 +154,10 @@ def sender(s, msg_box, msg_ent, send_btm):
 def recever(s, msg_box):
     while True:
         try:
-            rx_data = s.recv(4096).decode()
+            rx_header_byte = s.recv(1024).decode()
+            echo_header = json.loads(rx_header_byte)
+            s.send(str(len(echo_header)).encode())
+            rx_data = s.recv(echo_header['size']).decode()
             if rx_data == '':
                 s.send('RX ACTIVE'.encode())
                 continue
@@ -171,6 +208,7 @@ def main(host, s, r):
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
     main_win.mainloop()
+    s.send('##EXIT'.encode())
     s.close()
     r.close()
     root_win.deiconify()

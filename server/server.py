@@ -31,6 +31,7 @@ import os
 import random
 import socket
 import sqlite3
+import struct
 import time
 
 try:
@@ -112,6 +113,25 @@ AllowAdminCommands = load_conf['AllowAdminCommands']
 AllowNickname = load_conf['AllowNickname']
 WelcomeMessage = load_conf['WelcomeMessage']
 
+server_info = {
+    'host': socket.gethostname(),
+    'appid': 1
+}
+
+
+def echo(cnn, message):
+    try:
+        header = {}
+        header['time'] = current_milli_time()
+        header['size'] = len(message.encode())
+        header['sha256'] = hashlib.sha256(message.encode()).hexdigest()
+        cnn.send(json.dumps(header).encode())
+        header_size = cnn.recv(1024).decode()
+        cnn.send(message.encode())
+        return 0
+    except Exception as e:
+        print('ECHO')
+        print(e)
 
 def sender_main(cnn, addr):
     """sender communication
@@ -130,52 +150,60 @@ def sender_main(cnn, addr):
 
     global AllowAdminCommands
     global AllowNickname
-    message_counter = 0
     client_address = str(addr)
     nickname = ''
     print(client_address + ' Connected')
 
-    # Receive nickname from the client
-    use_nickname = False
-    if AllowNickname:
-        cnn.send('NICK'.encode())
-        request = cnn.recv(1024).decode()
-        if request == 'NICK_ON':
-            use_nickname = True
-            print(client_address + ' use_nickname=' + str(use_nickname))
-            nickname = cnn.recv(1024).decode()
-            nickname = nickname.strip('#').strip('<').strip('>').strip(':')
-            print(client_address + ' nickname=' + nickname)
-        else:
-            print(client_address + ' use_nickname=' + str(use_nickname))
-    else:
-        cnn.send('NICK_REJECTED'.encode())
+    # Exchange info
+    cnn.send(json.dumps(server_info).encode())
+    client_data = json.loads(cnn.recv(1024).decode())
+    print(client_data)
+    client_session_data = {}
 
-    # Generate a credential to authenticate the receiver
     try:
-        db_cursor.execute('''INSERT INTO "main"."clients"("address","name","code","valid") VALUES (NULL,NULL,NULL,1);''')
-    except Exception:
-        cnn.send('ERROR,ERROR'.encode())
+        db_cursor.execute('''INSERT INTO "main"."clients"("address","name","code","valid","meta") VALUES (?,NULL,NULL,0,?);''', (addr[0]+','+str(addr[1]), json.dumps(client_data),))
+        db.commit()
+    except Exception as e:
+        print(e)
+        client_session_data['success'] = False
+        cnn.send(json.dumps(client_session_data).encode())
         cnn.close()
         exit()
+
+    # TODO: Add verification here
+    if client_data['appid'] != server_info['appid']:
+        print(client_address + ' Failed (AppID Not Match)')
+        cnn.close()
+        exit()
+    else:
+        client_session_data['success'] = True
+
+    # Generate credential
     client_id = db_cursor.lastrowid
-    client_credential_pre = str(time.time()) + str(client_id) + str(random.randint(100000, 655360))
-    client_credential = hashlib.sha512(client_credential_pre.encode()).hexdigest()
-    client_credential_send = str(client_id) + ',' + client_credential
-    print(client_address + ' ' + str(client_credential_send.split(',')))
-    # Send the credential to the sender
-    cnn.send(client_credential_send.encode())
-    # Dump the credential to db
-    db_cursor.execute('''
-                        UPDATE "main"."clients"
-                        SET "address"=?, "name"=?, "code"=?
-                        WHERE "_rowid_"=?;
-                        ''', (addr[0]+','+str(addr[1]), nickname, client_credential, client_id))
-    message_time = current_milli_time()
-    if use_nickname:
-        client_alias = nickname
+    client_code_pre = str(time.time()) + str(client_id) + str(random.randint(100000, 655360))
+    client_code = hashlib.sha512(client_code_pre.encode()).hexdigest()
+
+    client_session_data['credential'] = {
+        'id': client_id,
+        'code': client_code
+    }
+    # Send session data to client
+    cnn.send(json.dumps(client_session_data).encode())
+
+    # Dump to db
+    if client_data['nickname'] != '':
+        client_alias = client_data['nickname']
+        nickname = client_data['nickname'].strip('#').strip('<').strip('>').strip(':')
+        use_nickname = True
     else:
         client_alias = str(addr)
+        use_nickname = False
+    db_cursor.execute('''
+                        UPDATE "main"."clients"
+                        SET "address"=?, "name"=?, "code"=?, valid=1
+                        WHERE "_rowid_"=?;
+                        ''', (addr[0]+','+str(addr[1]), nickname, client_code, client_id))
+    message_time = current_milli_time()
     message_content = client_alias + ' ' + 'Connected'
     db_cursor.execute('''
                         INSERT INTO "main"."messages"
@@ -186,11 +214,19 @@ def sender_main(cnn, addr):
     # Create a loop to receive and process messages
     while True:
         try:
+            # Receive header
+            message_header_byte = cnn.recv(1024).decode()
+            message_header = json.loads(message_header_byte)
+            cnn.send(str(len(message_header_byte)).encode())
             # Receive message
-            request = cnn.recv(4096).decode()
-            print(client_address + ': ' + request)
-            time.sleep(0.1)
-
+            print(message_header['size'])
+            request = cnn.recv(message_header['size']).decode()
+            message_time = current_milli_time()
+            print(client_address + ': ' + str(message_header))
+            if len(request) > 80:
+                print(client_address + ': ' + request[:40] + '...' + request[-40:])
+            else:
+                print(client_address + ': ' + request)
             # Validate credentials
             try:
                 load_credential = db_cursor.execute('''SELECT "id", "code", "valid", "meta", "name"
@@ -198,22 +234,22 @@ def sender_main(cnn, addr):
                                                         WHERE "id" = ?''', (client_id,)).fetchall()[0]
                 if not (load_credential[2]):
                     print(client_address + ' Rejected (Invalid Credential)')
-                    cnn.send('Invalid Credential'.encode())
+                    echo(cnn, 'Invalid Credential')
                     cnn.close()
                     return 1
             except:
                 print(client_address + ' Rejected (Invalid Credential)')
-                cnn.send('##Invalid Credential'.encode())
+                echo(cnn, '##Invalid Credential')
                 cnn.close()
                 return 1
 
             # Check meta
             if load_credential[3] is not None:
                 load_meta_data = json.loads(load_credential[3])
-                if 'mute' in load_meta_data and load_meta_data['mute'] > time.time():
-                    remain_mute_time = int(load_meta_data['mute'] - time.time())
+                if 'mute' in load_meta_data and load_meta_data['mute'] > current_milli_time():
+                    remain_mute_time = int((load_meta_data['mute'] - current_milli_time()) / 1000)
                     time.sleep(0.9)
-                    cnn.send('YOU ARE NOT ALLOWED TO SEND MESSAGES IN {} SECONDS'.format(str(remain_mute_time)).encode())
+                    echo(cnn, 'YOU ARE NOT ALLOWED TO SEND MESSAGES IN {} SECONDS'.format(str(remain_mute_time)))
                     continue
 
             # Update nickname
@@ -221,17 +257,17 @@ def sender_main(cnn, addr):
 
             # Detect if the received message is an instruction to the server
             if len(request.strip()) > 2 and request[0] == '#':
-                # Send message
                 message_time = current_milli_time()
                 message_content = request
-                meta_data = json.dumps({'nosend': True})
+                message_header.update({'nosend': True})
+                meta_data = json.dumps(message_header)
                 try:
                     db_cursor.execute('''
                                         INSERT INTO "main"."messages"
                                         ("client", "time", "content", "meta")
                                         VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
                 except Exception:
-                    cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
+                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
                     continue
                 db.commit()
                 if request[0:2] == '##' and request[2] != '#':
@@ -245,13 +281,13 @@ def sender_main(cnn, addr):
                         cnn.close()
                         return 0
                     elif user_cmd[0] == 'welcome':
-                        cnn.send(WelcomeMessage.encode())
+                        echo(cnn, WelcomeMessage)
                     elif len(user_cmd) > 1 and user_cmd[0] == 'nick':
                         if user_cmd[1] == 'get':
                             if use_nickname:
-                                cnn.send(nickname.encode())
+                                echo(cnn, nickname)
                             else:
-                                cnn.send('#NICKNAME NOT SET#'.encode())
+                                echo(cnn, '#NICKNAME NOT SET#')
                         elif len(user_cmd) > 2 and user_cmd[1] == 'set':
                             new_nickname = request[request.lower().find(user_cmd[2]):][0:len(user_cmd[2])]
                             new_nickname = new_nickname.strip('#').strip('<').strip('>').strip(':')
@@ -267,10 +303,10 @@ def sender_main(cnn, addr):
                                                 ("client", "time", "content")
                                                 VALUES (?, ?, ?);''', (0, message_time, message_content))
                             db.commit()
-                            use_nickname = nickname
-                            cnn.send('NICKNAME SET'.encode())
+                            use_nickname = True
+                            echo(cnn, 'NICKNAME SET')
                         else:
-                            cnn.send('INVALID COMMAND'.encode())
+                            echo(cnn, 'INVALID COMMAND')
                     elif len(user_cmd) > 2 and user_cmd[0] == 'dm':
                         meta_data = json.dumps({'to': user_cmd[1], 'dm': True})
                         message_time = current_milli_time()
@@ -280,9 +316,9 @@ def sender_main(cnn, addr):
                                                 INSERT INTO "main"."messages"
                                                 ("client", "time", "content", "meta")
                                                 VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
-                            cnn.send('MESSAGE SENT'.encode())
+                            echo(cnn, 'MESSAGE SENT')
                         except Exception:
-                            cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
+                            echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
                             continue
                         db.commit()
                     elif user_cmd[0] == 'su' and (len(user_cmd) > 2 or (len(user_cmd) > 1 and client_id == 0)):
@@ -310,7 +346,7 @@ def sender_main(cnn, addr):
                                     db_cursor.execute('''UPDATE "main"."clients" SET "address"=? WHERE "_rowid_"=?;''',
                                                       (addr[0]+','+str(addr[1]), new_uid))
                                 except Exception:
-                                    cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
+                                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
                                     continue
                                 db.commit()
                                 load_credential = db_cursor.execute('''SELECT "id", "name"
@@ -318,22 +354,27 @@ def sender_main(cnn, addr):
                                                                                         WHERE "id" = ?''',
                                                                     (new_uid,)).fetchall()[0]
                                 client_id = new_uid
-                                use_nickname = load_credential[1] is not None
-                                cnn.send('Welcome!'.encode())
+                                if load_credential[1] == '' or load_credential[1] is None:
+                                    use_nickname = False
+                                    nickname = ''
+                                else:
+                                    use_nickname = True
+                                    nickname = load_credential[1]
+                                echo(cnn, 'Welcome!')
                                 continue
                             else:
-                                cnn.send('SU FAILURE!'.encode())
+                                echo(cnn, 'SU FAILURE!')
                                 continue
                         except Exception:
-                            cnn.send('CLIENT NOT FOUND'.encode())
+                            echo(cnn, 'CLIENT NOT FOUND')
                     else:
-                        cnn.send('INVALID COMMAND'.encode())
+                        echo(cnn, 'INVALID COMMAND')
                     continue
 
                 elif len(request.strip()) > 3 and request[0:3] == '###':
                     # Server command
                     if not AllowAdminCommands:
-                        cnn.send('INVALID COMMAND'.encode())
+                        echo(cnn, 'INVALID COMMAND')
                         continue
                     request_cmd_server_fmt = request.lower()[3:].strip()
                     user_cmd = ' '.join(filter(lambda x: x, request_cmd_server_fmt.split(' '))).split(' ')
@@ -344,7 +385,7 @@ def sender_main(cnn, addr):
                             pause_time = int(user_cmd[1])
                             resume_time = int(user_cmd[2])
                         except Exception:
-                            cnn.send('INVALID COMMAND'.encode())
+                            echo(cnn, 'INVALID COMMAND')
                             continue
                         message_time = current_milli_time()
                         if resume_time > 0:
@@ -370,7 +411,7 @@ def sender_main(cnn, addr):
                             time.sleep(resume_time)
                         else:
                             while request != 'resume':
-                                cnn.send('SERVER PAUSED, SEND "RESUME" TO RESUME'.encode())
+                                echo(cnn, 'SERVER PAUSED, SEND "RESUME" TO RESUME')
                                 try:
                                     request = cnn.recv(4096).decode().lower()
                                 except Exception:
@@ -395,7 +436,7 @@ def sender_main(cnn, addr):
                                             VALUES (?, ?, ?);''', (0, message_time, message_content))
                         db.commit()
                         print('SERVER RESUMED')
-                        cnn.send('SERVER RESUMED'.encode())
+                        echo(cnn, 'SERVER RESUMED')
                         continue
                     elif user_cmd[0] == 'kick' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
@@ -403,25 +444,29 @@ def sender_main(cnn, addr):
                         try:
                             db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (target_client_id,))
                             db.commit()
-                            cnn.send('KICKED'.encode())
+                            echo(cnn, 'KICKED')
                         except Exception:
-                            cnn.send('CLIENT NOT FOUND'.encode())
+                            echo(cnn, 'CLIENT NOT FOUND')
                         continue
                     elif user_cmd[0] == 'mute' and len(user_cmd) > 2:
                         target_client_id = user_cmd[1]
                         try:
-                            mute_time = int(user_cmd[2])
-                            meta_data = json.dumps({'mute': time.time()+mute_time})
+                            load_credential = db_cursor.execute('''SELECT "id", "code", "valid", "meta", "name"
+                                        FROM "main"."clients"
+                                        WHERE "id" = ?''', (target_client_id,)).fetchall()[0]
+                            meta_data = json.loads(load_credential[3])
+                            mute_time = int(user_cmd[2])*1000
+                            meta_data['mute'] = current_milli_time() + mute_time
                             try:
                                 db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
                                                   (meta_data, target_client_id,))
                                 db.commit()
-                                cnn.send('MUTE'.encode())
+                                echo(cnn, 'MUTE')
                             except Exception:
-                                cnn.send('CLIENT NOT FOUND'.encode())
+                                echo(cnn, 'CLIENT NOT FOUND')
                             continue
                         except Exception:
-                            cnn.send('INVALID COMMAND'.encode())
+                            echo(cnn, 'INVALID COMMAND')
                             continue
                     elif user_cmd[0] == 'unmute' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
@@ -430,9 +475,9 @@ def sender_main(cnn, addr):
                             db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
                                               (meta_data, target_client_id,))
                             db.commit()
-                            cnn.send('UNMUTE'.encode())
+                            echo(cnn, 'UNMUTE')
                         except Exception:
-                            cnn.send('CLIENT NOT FOUND'.encode())
+                            echo(cnn, 'CLIENT NOT FOUND')
                     elif len(user_cmd) > 2 and user_cmd[0] == 'get':
                         if user_cmd[1] == 'id':
                             target_name = user_cmd[2]
@@ -444,30 +489,30 @@ def sender_main(cnn, addr):
                             target_str = 'RES:\n'
                             for item in target_list:
                                 target_str = target_str + str(item) + '\n'
-                            cnn.send(target_str.strip('\n').encode())
+                            echo(cnn, target_str.strip('\n'))
                             continue
                         elif user_cmd[1] == 'cdt':
                             try:
                                 target_client_id = int(user_cmd[2])
                                 if target_client_id == 0:
-                                    cnn.send('OPERATION NOT ALLOWED'.encode())
+                                    echo(cnn, 'OPERATION NOT ALLOWED')
                                     continue
                                 load_credential = db_cursor.execute('''SELECT "id", "code"
                                                                         FROM "main"."clients"
                                                                         WHERE "id" = ?''',
                                                                     (target_client_id,)).fetchall()[0]
                                 target_str = 'ID:\n' + str(load_credential[0]) + '\nAccess Code:\n' + load_credential[1]
-                                cnn.send(target_str.encode())
+                                echo(cnn, target_str)
                                 continue
                             except Exception:
-                                cnn.send('INVALID COMMAND'.encode())
+                                echo(cnn, 'INVALID COMMAND')
                                 continue
                         else:
-                            cnn.send('INVALID COMMAND'.encode())
+                            echo(cnn, 'INVALID COMMAND')
                     elif len(user_cmd) > 2 and user_cmd[0] == 'block':
                         pass
                     else:
-                        cnn.send('INVALID COMMAND'.encode())
+                        echo(cnn, 'INVALID COMMAND')
                     continue
 
             '''
@@ -482,21 +527,23 @@ def sender_main(cnn, addr):
             # Send message
             message_time = current_milli_time()
             message_content = request
+            meta_data = json.dumps(message_header)
             try:
                 db_cursor.execute('''
                                     INSERT INTO "main"."messages"
-                                    ("client", "time", "content")
-                                    VALUES (?, ?, ?);''', (client_id, message_time, message_content))
+                                    ("client", "time", "content", "meta")
+                                    VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
                 db.commit()
             except Exception as e:
                 db.rollback()
-                cnn.send('SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER'.encode())
+                echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
                 continue
 
 
             # The received message is returned to the client receiver to help the client confirm that the message has
             # been delivered.
-            cnn.send(request.encode())
+            echo(cnn, request)
+            time.sleep(0.1)
 
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
@@ -507,6 +554,8 @@ def sender_main(cnn, addr):
             return 0
         except Exception as e:
             print(e)
+            echo(cnn, 'ACTIVE')
+            time.sleep(1)
             continue
 
 
@@ -560,11 +609,11 @@ def receiver_main(rxcnn, addr):
 
     print(client_address + ' RX Connected')
     # Receive credential from the client
-    rxcnn.send('UNBLOCK'.encode())
-    client_id = rxcnn.recv(1024).decode()
-    rxcnn.send(client_id.encode())
-    client_credential = rxcnn.recv(1024).decode()
-    rxcnn.send(client_credential.encode())
+    rxcnn.send(json.dumps(server_info).encode())
+    client_data = json.loads(rxcnn.recv(1024).decode())
+
+    client_id = client_data['id']
+    client_credential = client_data['code']
 
     # Validate credentials
     try:
@@ -576,21 +625,23 @@ def receiver_main(rxcnn, addr):
             db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
             db.commit()
             print(client_address + ' RX Rejected (Invalid Credential)')
-            rxcnn.send('Invalid Credential'.encode())
+            echo(rxcnn, 'Invalid Credential')
             rxcnn.close()
             return 1
     except:
         print(client_address + ' RX Rejected (Invalid Credential)')
-        rxcnn.send('Invalid Credential'.encode())
+        echo(rxcnn, 'Invalid Credential')
         rxcnn.close()
         return 1
 
     # Send welcome message
-    rxcnn.send(WelcomeMessage.encode())
+    # rxcnn.send(WelcomeMessage.encode())
+    echo(rxcnn, WelcomeMessage)
 
     # Create a loop to send messages
+    message = []
     try:
-        message = db_cursor.execute('''SELECT "id", "client", "time", "content"
+        message = db_cursor.execute('''SELECT "id", "client", "time", "content", "meta"
                                 FROM messages ORDER BY id DESC LIMIT 1;''').fetchall()[0]
         temp_message_id = message[0]
         message_id = temp_message_id
@@ -616,12 +667,12 @@ def receiver_main(rxcnn, addr):
                 if not ((load_credential[2] == client_credential) and load_credential[3] and (
                         load_credential[1].split(',')[0] == addr[0])):
                     print(client_address + ' RX Rejected (Invalid Credential)')
-                    rxcnn.send('Invalid Credential'.encode())
+                    echo(rxcnn, 'Invalid Credential')
                     rxcnn.close()
                     return 1
             except:
                 print(client_address + ' RX Rejected (Invalid Credential)')
-                rxcnn.send('Invalid Credential'.encode())
+                echo(rxcnn, 'Invalid Credential')
                 rxcnn.close()
                 return 1
 
@@ -629,37 +680,49 @@ def receiver_main(rxcnn, addr):
             message_content = message[3]
             if message[4] is not None:
                 load_meta = json.loads(message[4])
-                if 'to' in load_meta and (str(load_meta['to']) in ['#'+str(client_id), str(load_credential[4]).lower()] or str(message[1]) == client_id):
-                    if 'dm' in load_meta and load_meta['dm'] == True:
-                        if message_content == '#':
+                if 'to' in load_meta:
+                    if str(load_meta['to']) in ['#'+str(client_id), str(load_credential[4]).lower()] or message[1] == client_id:
+                        if 'dm' in load_meta and load_meta['dm'] == True:
+                            if message_content == '#':
+                                continue
+                            if client[2] == "":
+                                client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
+                            else:
+                                client_alias = client[2]
+                            message_send = '<DM> ' + client_alias + ': ' + message_content
+                            # rxcnn.send(message_send.encode())
+                            echo(rxcnn, message_send)
+                            print('Local==>' + client_address + ' RX Send: ' + message_send)
                             continue
-                        if client[2] == "":
-                            client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
+                        elif 'su' in load_meta:
+                            client_id = load_meta['id']
+                            load_credential = db_cursor.execute('''SELECT "id", "address", "code", "valid", "name"
+                                                                                    FROM "main"."clients"
+                                                                                    WHERE "id" = ?''',
+                                                                (client_id,)).fetchall()[0]
+                            client_credential = load_credential[2]
+                            echo(rxcnn, 'Identity change to ' + str(client_id))
+                            continue
                         else:
-                            client_alias = client[2]
-                        message_send = '<DM> ' + client_alias + ': ' + message_content
-                        rxcnn.send(message_send.encode())
-                        print('Local==>' + client_address + ' RX Send: ' + message_send)
-                    elif 'su' in load_meta:
-                        client_id = load_meta['id']
-                        load_credential = db_cursor.execute('''SELECT "id", "address", "code", "valid", "name"
-                                                                                FROM "main"."clients"
-                                                                                WHERE "id" = ?''',
-                                                            (client_id,)).fetchall()[0]
-                        client_credential = load_credential[2]
+                            continue
                     else:
                         continue
-                else:
+                # Add before here
+                elif 'nosend' in load_meta and load_meta['nosend'] == True:
                     continue
+
+            if message_content == '#':
+                continue
+            if client[2] == "":
+                client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
             else:
-                if message_content == '#':
-                    continue
-                if client[2] == "":
-                    client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
-                else:
-                    client_alias = client[2]
-                message_send = client_alias + ': ' + message_content
-                rxcnn.send(message_send.encode())
+                client_alias = client[2]
+            message_send = client_alias + ': ' + message_content
+            # rxcnn.send(message_send.encode())
+            echo(rxcnn, message_send)
+            if len(message_send) > 80:
+                print('Local==>' + client_address + ' RX Send: ' + message_send[:40] + '...' + message_send[-40:])
+            else:
                 print('Local==>' + client_address + ' RX Send: ' + message_send)
 
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
