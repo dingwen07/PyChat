@@ -38,7 +38,7 @@ def connect(host, port, nickname):
     connect_win.title('PyChat Client - Connecting')
     connect_win.protocol('WM_DELETE_WINDOW', lambda: connect_win_back(connect_win))
     var_cnn_msg = tk.StringVar(connect_win)
-    info_lbl = tk.Message(connect_win, width=200, textvariable=var_cnn_msg)
+    info_lbl = tk.Message(connect_win, width=250, textvariable=var_cnn_msg)
     info_lbl.pack(side='top', anchor='nw', padx=5, pady=5)
     connect_win.update()
     cnn_msg = 'Connecting...\n'

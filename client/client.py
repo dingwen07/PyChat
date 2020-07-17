@@ -25,7 +25,6 @@ client_info = {
 current_milli_time = lambda: int(round(time.time() * 1000))
 
 # Ask the user about the server they need to connect to
-s = socket.socket()
 host = input('Input server name: ').strip()
 if host == '':
     print('Use localhost...')
@@ -47,6 +46,7 @@ client_info['nickname'] = nickname
 
 # Try to connect to the server
 try:
+    s = socket.socket()
     s.connect((host, port))
     server_data = json.loads(s.recv(1024).decode())
     print(server_data)

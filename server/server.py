@@ -150,6 +150,7 @@ def sender_main(cnn, addr):
 
     global AllowAdminCommands
     global AllowNickname
+    errcount = 0
     client_address = str(addr)
     nickname = ''
     print(client_address + ' Connected')
@@ -289,7 +290,7 @@ def sender_main(cnn, addr):
                             else:
                                 echo(cnn, '#NICKNAME NOT SET#')
                         elif len(user_cmd) > 2 and user_cmd[1] == 'set':
-                            new_nickname = request[request.lower().find(user_cmd[2]):][0:len(user_cmd[2])]
+                            new_nickname = request[request.lower().find(user_cmd[2]):]
                             new_nickname = new_nickname.strip('#').strip('<').strip('>').strip(':')
                             db_cursor.execute('''UPDATE "main"."clients" SET "name"=? WHERE "_rowid_"=?;''', (new_nickname, client_id,))
                             message_time = current_milli_time()
@@ -310,7 +311,7 @@ def sender_main(cnn, addr):
                     elif len(user_cmd) > 2 and user_cmd[0] == 'dm':
                         meta_data = json.dumps({'to': user_cmd[1], 'dm': True})
                         message_time = current_milli_time()
-                        message_content = user_cmd[2]
+                        message_content = request[request.lower().find(user_cmd[2]):]
                         try:
                             db_cursor.execute('''
                                                 INSERT INTO "main"."messages"
@@ -511,6 +512,18 @@ def sender_main(cnn, addr):
                             echo(cnn, 'INVALID COMMAND')
                     elif len(user_cmd) > 2 and user_cmd[0] == 'block':
                         pass
+                    elif user_cmd[0] == 'dbcmd' and len(user_cmd) > 1:
+                        try:
+                            sql = request[request.lower().find(user_cmd[1]):]
+                            print(sql)
+                            res = str(db_cursor.execute(sql).fetchone())
+                            db.commit()
+                            print(res)
+                            echo(cnn, res)
+                        except Exception as e:
+                            db.commit()
+                            echo(cnn, str(e))
+                        continue
                     else:
                         echo(cnn, 'INVALID COMMAND')
                     continue
@@ -556,6 +569,13 @@ def sender_main(cnn, addr):
             print(e)
             echo(cnn, 'ACTIVE')
             time.sleep(1)
+            errcount += 1
+            if errcount >= 10:
+                print(client_address + ' Disconnected (Unexpected)')
+                db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
+                db.commit()
+                cnn.close()
+                return 0
             continue
 
 
