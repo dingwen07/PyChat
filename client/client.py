@@ -3,6 +3,7 @@ This is the client side of PyChat
 This is the sender part of the client
 """
 
+import os
 import json
 import socket
 import time
@@ -23,6 +24,9 @@ client_info = {
 }
 
 current_milli_time = lambda: int(round(time.time() * 1000))
+
+if not os.path.exists('./MESSAGE_DUMP/'):
+    os.mkdir('./MESSAGE_DUMP')
 
 # Ask the user about the server they need to connect to
 host = input('Input server name: ').strip()
@@ -68,7 +72,11 @@ try:
         input()
         exit()
 
-    new_data = {'server': host, 'port': port, 'id': client_credential['id'], 'code': client_credential['code']}
+    new_data = {
+        'server': host, 
+        'port': server_data['portrcv'] - 1, 
+        'id': client_credential['id'], 
+        'code': client_credential['code']}
     # Dump credential to local cache file
     with open(CLIENT_CREDENTIAL_FILE, 'w') as dump_file:
         json.dump(new_data, dump_file)
@@ -126,7 +134,13 @@ while True:
          print the message returned by the server.
         '''
         if reply != send_data:
-            print(reply)
+            if echo_header['size'] > 10240:
+                message_dump_file = './MESSAGE_DUMP/MESSAGE_DUMP_' + str(echo_header['message_id']) + '_' + str(current_milli_time()) + '.txt'
+                with open(message_dump_file, 'w') as dump_file:
+                    dump_file.write(reply)
+                print('Receved message too long, dumped to ' + message_dump_file)
+            else:
+                print(reply)
             print()
 
     except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):

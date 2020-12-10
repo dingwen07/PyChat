@@ -145,3 +145,4 @@ server/server.db-journal
 server/message-log.json
 server/temp.json
 server/credentials/*
+MESSAGE_DUMP_*

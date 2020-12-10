@@ -2,6 +2,7 @@ import hashlib
 import json
 import socket
 import sys
+import os
 import time
 import struct
 import threading
@@ -72,12 +73,12 @@ def connect(host, port, nickname):
             s.close()
             input()
             exit()
-
+        rx_port = server_data['portrcv']
         cnn_msg += 'Receiver connecting...\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
         r = socket.socket()
-        r.connect((host, port + 1))
+        r.connect((host, rx_port))
         cnn_msg += 'Receiver connected.\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
@@ -132,19 +133,29 @@ def sender(s, msg_box, msg_ent, send_btm):
             s.send(str(len(echo_header)).encode())
             reply = s.recv(echo_header['size']).decode()
             if reply != message:
-                if reply.find('\n') == -1:
+                if echo_header['size'] > 10240:
+                    message_dump_file = './MESSAGE_DUMP/MESSAGE_DUMP_' + str(echo_header['message_id']) + '_' + str(current_milli_time()) + '.txt'
+                    with open(message_dump_file, 'w') as dump_file:
+                        dump_file.write(reply)
                     msg_box.config(state='normal')
-                    msg_box.insert('end', reply)
+                    msg_box.insert('end', 'Receved message too long, dumped to ' + message_dump_file)
                     msg_box.insert('end', '\n')
                     msg_box.yview('end')
                     msg_box.config(state='disabled')
                 else:
-                    msg_box.config(state='normal')
-                    for replyln in reply.split('\n'):
-                        msg_box.insert('end', replyln)
+                    if reply.find('\n') == -1:
+                        msg_box.config(state='normal')
+                        msg_box.insert('end', reply)
                         msg_box.insert('end', '\n')
                         msg_box.yview('end')
-                    msg_box.config(state='disabled')
+                        msg_box.config(state='disabled')
+                    else:
+                        msg_box.config(state='normal')
+                        for replyln in reply.split('\n'):
+                            msg_box.insert('end', replyln)
+                            msg_box.insert('end', '\n')
+                            msg_box.yview('end')
+                        msg_box.config(state='disabled')
     except Exception as e:
         msg_ent.insert('end', e)
     finally:
@@ -215,6 +226,8 @@ def main(host, s, r):
 
 
 if __name__ == "__main__":
+    if not os.path.exists('./MESSAGE_DUMP/'):
+        os.mkdir('./MESSAGE_DUMP')
     global root_win
     root_win = tk.Tk()
     root_win.title('PyChat Client')

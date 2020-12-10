@@ -10,6 +10,7 @@ Requirements: {
             example:
                 {
                     "Port": 233,
+                    "PortRcv": 234,
                     "Auth": false,
                     "AllowAdminCommands": true,
                     "AllowNickname": true,
@@ -96,6 +97,7 @@ if not os.path.exists(CONFIG_FILE):
     with open(CONFIG_FILE, 'w') as dump_file:
         dump_data = {
             "Port": 233,
+            "PortRcv": 234,
             "Auth": False,
             "AllowAdminCommands": True,
             "AllowNickname": True,
@@ -104,24 +106,29 @@ if not os.path.exists(CONFIG_FILE):
             "WelcomeMessage": "Welcome to PyChat Server!"
         }
         json.dump(dump_data, dump_file)
+if not os.path.exists('./MESSAGE_DUMP/'):
+    os.mkdir('./MESSAGE_DUMP')
 # Load config from file
 with open(CONFIG_FILE, 'r') as load_file:
     load_conf = json.load(load_file)
 port = load_conf['Port']
-rx_port = port + 1
+if 'PortRcv' in load_conf:
+    rx_port = load_conf['PortRcv']
+else:
+    rx_port = port + 1
 AllowAdminCommands = load_conf['AllowAdminCommands']
 AllowNickname = load_conf['AllowNickname']
 WelcomeMessage = load_conf['WelcomeMessage']
 
 server_info = {
     'host': socket.gethostname(),
-    'appid': 1
+    'appid': 1,
+    'portrcv': rx_port
 }
 
 
-def echo(cnn, message):
+def echo(cnn, message, header = {}):
     try:
-        header = {}
         header['time'] = current_milli_time()
         header['size'] = len(message.encode())
         header['sha256'] = hashlib.sha256(message.encode()).hexdigest()
@@ -181,7 +188,7 @@ def sender_main(cnn, addr):
 
     # Generate credential
     client_id = db_cursor.lastrowid
-    client_code_pre = str(time.time()) + str(client_id) + str(random.randint(100000, 655360))
+    client_code_pre = str(current_milli_time()) + str(client_id) + str(random.randint(100000, 655360))
     client_code = hashlib.sha512(client_code_pre.encode()).hexdigest()
 
     client_session_data['credential'] = {
@@ -215,6 +222,7 @@ def sender_main(cnn, addr):
     # Create a loop to receive and process messages
     while True:
         try:
+            message_id = -1
             # Receive header
             message_header_byte = cnn.recv(1024).decode()
             message_header = json.loads(message_header_byte)
@@ -235,12 +243,12 @@ def sender_main(cnn, addr):
                                                         WHERE "id" = ?''', (client_id,)).fetchall()[0]
                 if not (load_credential[2]):
                     print(client_address + ' Rejected (Invalid Credential)')
-                    echo(cnn, 'Invalid Credential')
+                    echo(cnn, 'Invalid Credential', {'message_id': message_id})
                     cnn.close()
                     return 1
             except:
                 print(client_address + ' Rejected (Invalid Credential)')
-                echo(cnn, '##Invalid Credential')
+                echo(cnn, '##Invalid Credential', {'message_id': message_id})
                 cnn.close()
                 return 1
 
@@ -250,7 +258,7 @@ def sender_main(cnn, addr):
                 if 'mute' in load_meta_data and load_meta_data['mute'] > current_milli_time():
                     remain_mute_time = int((load_meta_data['mute'] - current_milli_time()) / 1000)
                     time.sleep(0.9)
-                    echo(cnn, 'YOU ARE NOT ALLOWED TO SEND MESSAGES IN {} SECONDS'.format(str(remain_mute_time)))
+                    echo(cnn, 'YOU ARE NOT ALLOWED TO SEND MESSAGES IN {} SECONDS'.format(str(remain_mute_time)), {'message_id': message_id})
                     continue
 
             # Update nickname
@@ -260,15 +268,18 @@ def sender_main(cnn, addr):
             if len(request.strip()) > 2 and request[0] == '#':
                 message_time = current_milli_time()
                 message_content = request
-                message_header.update({'nosend': True})
-                meta_data = json.dumps(message_header)
+                cmd_meta_data = message_header
+                cmd_meta_data.update({'nosend': True})
+                
                 try:
+                    cmd_meta_data_dump = json.dumps(cmd_meta_data)
                     db_cursor.execute('''
                                         INSERT INTO "main"."messages"
                                         ("client", "time", "content", "meta")
-                                        VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
+                                        VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, cmd_meta_data_dump))
+                    message_id = db_cursor.lastrowid
                 except Exception:
-                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
+                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER', {'message_id': message_id})
                     continue
                 db.commit()
                 if request[0:2] == '##' and request[2] != '#':
@@ -278,17 +289,32 @@ def sender_main(cnn, addr):
                     if user_cmd[0] == 'exit':
                         print(client_address + ' Disconnected')
                         db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (client_id,))
+                        cmd_meta_data['command_result'] = {'code': 0, 'message': 'Success'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
                         db.commit()
                         cnn.close()
                         return 0
                     elif user_cmd[0] == 'welcome':
-                        echo(cnn, WelcomeMessage)
+                        cmd_meta_data['command_result'] = {'code': 0, 'message': 'Success'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                        db.commit()
+                        echo(cnn, WelcomeMessage, {'message_id': message_id})
                     elif len(user_cmd) > 1 and user_cmd[0] == 'nick':
                         if user_cmd[1] == 'get':
                             if use_nickname:
-                                echo(cnn, nickname)
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': nickname}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, nickname, {'message_id': message_id})
                             else:
-                                echo(cnn, '#NICKNAME NOT SET#')
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': '#NICKNAME NOT SET#'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, '#NICKNAME NOT SET#', {'message_id': message_id})
                         elif len(user_cmd) > 2 and user_cmd[1] == 'set':
                             new_nickname = request[request.lower().find(user_cmd[2]):]
                             new_nickname = new_nickname.strip('#').strip('<').strip('>').strip(':')
@@ -305,9 +331,17 @@ def sender_main(cnn, addr):
                                                 VALUES (?, ?, ?);''', (0, message_time, message_content))
                             db.commit()
                             use_nickname = True
-                            echo(cnn, 'NICKNAME SET')
+                            cmd_meta_data['command_result'] = {'code': 0, 'message': 'NICKNAME SET'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'NICKNAME SET', {'message_id': message_id})
                         else:
-                            echo(cnn, 'INVALID COMMAND')
+                            cmd_meta_data['command_result'] = {'code': 1, 'message': 'INVALID COMMAND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                     elif len(user_cmd) > 2 and user_cmd[0] == 'dm':
                         meta_data = json.dumps({'to': user_cmd[1], 'dm': True})
                         message_time = current_milli_time()
@@ -317,9 +351,13 @@ def sender_main(cnn, addr):
                                                 INSERT INTO "main"."messages"
                                                 ("client", "time", "content", "meta")
                                                 VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
-                            echo(cnn, 'MESSAGE SENT')
+                            cmd_meta_data['command_result'] = {'code': 0, 'message': 'MESSAGE SENT'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'MESSAGE SENT', {'message_id': message_id})
                         except Exception:
-                            echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
+                            echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER', {'message_id': message_id})
                             continue
                         db.commit()
                     elif user_cmd[0] == 'su' and (len(user_cmd) > 2 or (len(user_cmd) > 1 and client_id == 0)):
@@ -347,7 +385,7 @@ def sender_main(cnn, addr):
                                     db_cursor.execute('''UPDATE "main"."clients" SET "address"=? WHERE "_rowid_"=?;''',
                                                       (addr[0]+','+str(addr[1]), new_uid))
                                 except Exception:
-                                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER')
+                                    echo(cnn, 'SERVER NOT AVAILABLE, PLEASE TRY AGAIN LATER', {'message_id': message_id})
                                     continue
                                 db.commit()
                                 load_credential = db_cursor.execute('''SELECT "id", "name"
@@ -361,21 +399,41 @@ def sender_main(cnn, addr):
                                 else:
                                     use_nickname = True
                                     nickname = load_credential[1]
-                                echo(cnn, 'Welcome!')
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': 'SU SUCCESS'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, 'Welcome!', {'message_id': message_id})
                                 continue
                             else:
-                                echo(cnn, 'SU FAILURE!')
+                                cmd_meta_data['command_result'] = {'code': 2, 'message': 'SU FAILURE'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, 'SU FAILURE!', {'message_id': message_id})
                                 continue
                         except Exception:
-                            echo(cnn, 'CLIENT NOT FOUND')
+                            cmd_meta_data['command_result'] = {'code': 2, 'message': 'CLIENT NOT FOUND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'CLIENT NOT FOUND', {'message_id': message_id})
                     else:
-                        echo(cnn, 'INVALID COMMAND')
+                        cmd_meta_data['command_result'] = {'code': 1, 'message': 'INVALID COMMAND'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                        db.commit()
+                        echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                     continue
 
                 elif len(request.strip()) > 3 and request[0:3] == '###':
                     # Server command
                     if not AllowAdminCommands:
-                        echo(cnn, 'INVALID COMMAND')
+                        cmd_meta_data['command_result'] = {'code': 3, 'message': 'INVALID COMMAND: ADMIN COMMANDS NOT ALLOWED'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                        db.commit()
+                        echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                         continue
                     request_cmd_server_fmt = request.lower()[3:].strip()
                     user_cmd = ' '.join(filter(lambda x: x, request_cmd_server_fmt.split(' '))).split(' ')
@@ -386,7 +444,11 @@ def sender_main(cnn, addr):
                             pause_time = int(user_cmd[1])
                             resume_time = int(user_cmd[2])
                         except Exception:
-                            echo(cnn, 'INVALID COMMAND')
+                            cmd_meta_data['command_result'] = {'code': 2, 'message': 'INVALID COMMAND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                             continue
                         message_time = current_milli_time()
                         if resume_time > 0:
@@ -406,13 +468,17 @@ def sender_main(cnn, addr):
                                             ("client", "time", "content")
                                             VALUES (?, ?, ?);''', (0, message_time, message_content))
                         db.commit()
+                        cmd_meta_data['command_result'] = {'code': 0, 'message': 'SERVER PAUSED'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                        db.commit()
                         db_cursor.execute('''UPDATE "main"."clients" SET "valid"=1 WHERE "_rowid_"=?;''', (client_id,))
                         print('SERVER PAUSED')
                         if resume_time > 0:
                             time.sleep(resume_time)
                         else:
                             while request != 'resume':
-                                echo(cnn, 'SERVER PAUSED, SEND "RESUME" TO RESUME')
+                                echo(cnn, 'SERVER PAUSED, SEND "RESUME" TO RESUME', {'message_id': message_id})
                                 try:
                                     request = cnn.recv(4096).decode().lower()
                                 except Exception:
@@ -437,7 +503,7 @@ def sender_main(cnn, addr):
                                             VALUES (?, ?, ?);''', (0, message_time, message_content))
                         db.commit()
                         print('SERVER RESUMED')
-                        echo(cnn, 'SERVER RESUMED')
+                        echo(cnn, 'SERVER RESUMED', {'message_id': message_id})
                         continue
                     elif user_cmd[0] == 'kick' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
@@ -445,9 +511,24 @@ def sender_main(cnn, addr):
                         try:
                             db_cursor.execute('''UPDATE "main"."clients" SET "valid"=0 WHERE "_rowid_"=?;''', (target_client_id,))
                             db.commit()
-                            echo(cnn, 'KICKED')
+                            if db_cursor.rowcount > 0:
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': 'KICKED'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, 'KICKED', {'message_id': message_id})
+                            else:
+                                cmd_meta_data['command_result'] = {'code': 2, 'message': 'CLIENT NOT FOUND'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, 'CLIENT NOT FOUND', {'message_id': message_id})
                         except Exception:
-                            echo(cnn, 'CLIENT NOT FOUND')
+                            cmd_meta_data['command_result'] = {'code': 2, 'message': 'INVALID COMMAND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                         continue
                     elif user_cmd[0] == 'mute' and len(user_cmd) > 2:
                         target_client_id = user_cmd[1]
@@ -461,13 +542,24 @@ def sender_main(cnn, addr):
                             try:
                                 db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
                                                   (meta_data, target_client_id,))
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': 'MUTE'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
                                 db.commit()
-                                echo(cnn, 'MUTE')
+                                echo(cnn, 'MUTE', {'message_id': message_id})
                             except Exception:
-                                echo(cnn, 'CLIENT NOT FOUND')
+                                cmd_meta_data['command_result'] = {'code': 2, 'message': 'CLIENT NOT FOUND'}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data, message_id,))
+                                db.commit()
+                                echo(cnn, 'CLIENT NOT FOUND', {'message_id': message_id})
                             continue
                         except Exception:
-                            echo(cnn, 'INVALID COMMAND')
+                            cmd_meta_data['command_result'] = {'code': 1, 'message': 'INVALID COMMAND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                             continue
                     elif user_cmd[0] == 'unmute' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
@@ -476,9 +568,17 @@ def sender_main(cnn, addr):
                             db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
                                               (meta_data, target_client_id,))
                             db.commit()
-                            echo(cnn, 'UNMUTE')
+                            cmd_meta_data['command_result'] = {'code': 0, 'message': 'UNMUTE'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data, message_id,))
+                            db.commit()
+                            echo(cnn, 'UNMUTE', {'message_id': message_id})
                         except Exception:
-                            echo(cnn, 'CLIENT NOT FOUND')
+                            cmd_meta_data['command_result'] = {'code': 2, 'message': 'CLIENT NOT FOUND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'CLIENT NOT FOUND', {'message_id': message_id})
                     elif len(user_cmd) > 2 and user_cmd[0] == 'get':
                         if user_cmd[1] == 'id':
                             target_name = user_cmd[2]
@@ -490,41 +590,84 @@ def sender_main(cnn, addr):
                             target_str = 'RES:\n'
                             for item in target_list:
                                 target_str = target_str + str(item) + '\n'
-                            echo(cnn, target_str.strip('\n'))
+                            cmd_meta_data['command_result'] = {'code': 0, 'message': target_str.strip('\n')}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, target_str.strip('\n'), {'message_id': message_id})
                             continue
                         elif user_cmd[1] == 'cdt':
                             try:
                                 target_client_id = int(user_cmd[2])
                                 if target_client_id == 0:
-                                    echo(cnn, 'OPERATION NOT ALLOWED')
+                                    cmd_meta_data['command_result'] = {'code': 2, 'message': 'OPERATION NOT ALLOWED'}
+                                    cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                    db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                    db.commit()
+                                    echo(cnn, 'OPERATION NOT ALLOWED', {'message_id': message_id})
                                     continue
                                 load_credential = db_cursor.execute('''SELECT "id", "code"
                                                                         FROM "main"."clients"
                                                                         WHERE "id" = ?''',
                                                                     (target_client_id,)).fetchall()[0]
                                 target_str = 'ID:\n' + str(load_credential[0]) + '\nAccess Code:\n' + load_credential[1]
-                                echo(cnn, target_str)
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': target_str}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, target_str, {'message_id': message_id})
                                 continue
-                            except Exception:
-                                echo(cnn, 'INVALID COMMAND')
+                            except Exception as e:
+                                cmd_meta_data['command_result'] = {'code': 2, 'message': 'INVALID COMMAND: ' + str(e)}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                echo(cnn, 'INVALID COMMAND: ' + str(e), {'message_id': message_id})
                                 continue
                         else:
-                            echo(cnn, 'INVALID COMMAND')
+                            cmd_meta_data['command_result'] = {'code': 1, 'message': 'INVALID COMMAND'}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, 'INVALID COMMAND', {'message_id': message_id})
                     elif len(user_cmd) > 2 and user_cmd[0] == 'block':
                         pass
                     elif user_cmd[0] == 'dbcmd' and len(user_cmd) > 1:
                         try:
                             sql = request[request.lower().find(user_cmd[1]):]
                             print(sql)
-                            res = str(db_cursor.execute(sql).fetchone())
-                            db.commit()
-                            print(res)
-                            echo(cnn, res)
+                            res = json.dumps(db_cursor.execute(sql).fetchall())
+                            print('QUERY END')
+                            echo(cnn, res, {'message_id': message_id})
+                            if len(res) > 8192:
+                                message_dump_file = './MESSAGE_DUMP/MESSAGE_DUMP_' + str(message_id) + '_' + str(current_milli_time()) + '.txt'
+                                with open(message_dump_file, 'w') as dump_file:
+                                    dump_file.write(res)
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': 'RESULT TOO LONG', 'meta': {'file': os.path.abspath(message_dump_file)}}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                print(res[:64] + '...' + res[-64:])
+                                print('Result too long, dumped to ' + message_dump_file)
+                            else:
+                                cmd_meta_data['command_result'] = {'code': 0, 'message': res}
+                                cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                                db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                                db.commit()
+                                print(res)
                         except Exception as e:
                             db.commit()
-                            echo(cnn, str(e))
+                            cmd_meta_data['command_result'] = {'code': 2, 'message': str(e)}
+                            cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                            db.commit()
+                            echo(cnn, str(e), {'message_id': message_id})
                         continue
                     else:
+                        cmd_meta_data['command_result'] = {'code': 1, 'message': 'INVALID COMMAND'}
+                        cmd_meta_data_dump = json.dumps(cmd_meta_data)
+                        db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
+                        db.commit()
                         echo(cnn, 'INVALID COMMAND')
                     continue
 
@@ -546,6 +689,7 @@ def sender_main(cnn, addr):
                                     INSERT INTO "main"."messages"
                                     ("client", "time", "content", "meta")
                                     VALUES (?, ?, ?, ?);''', (client_id, message_time, message_content, meta_data))
+                message_id = db_cursor.lastrowid
                 db.commit()
             except Exception as e:
                 db.rollback()
@@ -555,7 +699,8 @@ def sender_main(cnn, addr):
 
             # The received message is returned to the client receiver to help the client confirm that the message has
             # been delivered.
-            echo(cnn, request)
+            echo(cnn, request, {'message_id': message_id})
+            errcount = 0
             time.sleep(0.1)
 
 
@@ -625,6 +770,7 @@ def receiver_main(rxcnn, addr):
         Validation fails returns 1
     """
 
+    errcount = 0
     client_address = str(addr)
 
     print(client_address + ' RX Connected')
@@ -740,6 +886,7 @@ def receiver_main(rxcnn, addr):
             message_send = client_alias + ': ' + message_content
             # rxcnn.send(message_send.encode())
             echo(rxcnn, message_send)
+            errcount = 0
             if len(message_send) > 80:
                 print('Local==>' + client_address + ' RX Send: ' + message_send[:40] + '...' + message_send[-40:])
             else:
@@ -748,10 +895,23 @@ def receiver_main(rxcnn, addr):
         except (BrokenPipeError, ConnectionAbortedError, ConnectionRefusedError, ConnectionResetError):
             print(client_address + ' RX Disconnected (Unexpected)')
             rxcnn.close()
+            try:
+                db.commit()
+            except Exception:
+                pass
             return 0
 
         except Exception as e:
             print(e)
+            if errcount >= 3:
+                print(client_address + ' RX Disconnected (Unexpected)')
+                rxcnn.close()
+                try:
+                    db.commit()
+                except Exception:
+                    pass
+                return 0
+            errcount += 1
             continue
 
 
@@ -766,7 +926,7 @@ if __name__ == '__main__':
     # Invalidate all credentials
     print('Invalidating credentials...')
     db_cursor.execute('''UPDATE "clients" SET "valid" = 0;''')
-    client_credential_pre = str(time.time()) + str(0) + str(random.randint(100000, 655360))
+    client_credential_pre = str(current_milli_time()) + str(0) + str(random.randint(100000, 655360))
     client_credential = hashlib.sha512(client_credential_pre.encode()).hexdigest()
     db_cursor.execute('''UPDATE "main"."clients" SET "code"=?, "valid"=1 WHERE "_rowid_"=?;''', (client_credential, 0))
     print('SU Access Code:')
