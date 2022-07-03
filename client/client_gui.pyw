@@ -1,5 +1,6 @@
 import hashlib
 import json
+from logging import root
 import socket
 import sys
 import os
@@ -11,6 +12,9 @@ HOSTNAME = socket.gethostname()
 DEFAULT_SERVER = HOSTNAME
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
+TOAST_NOTIFICATION = True
+TOAST_MINIMUM_DURATION = 1000
+
 
 client_info = {
     'host': HOSTNAME,
@@ -20,6 +24,10 @@ rx_client_info = {
     'host': HOSTNAME,
     'appid': 1
 }
+TOAST_APP_ID = 'PyChat'
+
+last_toast_time = 0
+toast_notifier = lambda msg: toast_notifier_null(msg)
 
 current_milli_time = lambda: int(round(time.time() * 1000))
 
@@ -164,9 +172,11 @@ def sender(s, msg_box, msg_ent, send_btm):
         msg_ent.insert('end', e)
     finally:
         send_btm.config(state='normal')
+        global last_toast_time
+        last_toast_time = current_milli_time() + TOAST_MINIMUM_DURATION
         sys.exit()
 
-def recever(s, msg_box):
+def receiver(s, msg_box):
     while True:
         try:
             rx_header_byte = s.recv(1024).decode()
@@ -192,7 +202,15 @@ def recever(s, msg_box):
                     msg_box.insert('end', '\n')
                     msg_box.yview('end')
                 msg_box.config(state='disabled')
-        except Exception:
+            # send toast notification
+            global last_toast_time
+            if TOAST_NOTIFICATION and current_milli_time() > last_toast_time + TOAST_MINIMUM_DURATION:
+                # check if application has focus
+                if main_win.focus_displayof() == None:
+                    toast_notifier(rx_data)
+                    last_toast_time = current_milli_time()
+        except Exception as e:
+            print(e)
             print('Server disconnected.')
             s.close()
             break
@@ -203,7 +221,7 @@ def main(host, s, r, id=-1, server_data=None):
         server_data = {
             'name': host,
         }
-    # global main_win
+    global main_win
     main_win = tk.Tk()
     main_win.title('PyChat Client - #{}@{}'.format(str(id), server_data['name']))
     msg_box = tk.Text(main_win, font=('Arial',10), wrap='word', state='disabled', height=10, width=50)
@@ -221,9 +239,9 @@ def main(host, s, r, id=-1, server_data=None):
     send_btm = tk.Button(main_win, text='Send', command=lambda: sender_task(s, msg_box, msg_ent, send_btm))
     send_btm.pack(side='bottom', pady=10)
 
-    recever_thread = threading.Thread(target=recever, args=(r, msg_box,))
-    # recever_thread.daemon = True
-    recever_thread.start()
+    receiver_thread = threading.Thread(target=receiver, args=(r, msg_box,))
+    # receiver_thread.daemon = True
+    receiver_thread.start()
 
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
@@ -252,11 +270,37 @@ def entry_focus_out(entry, textvariable, default):
         entry.config(fg='black')
 
 
+def toast_notifier_null(msg):
+    pass
+
+def toast_notifier_nt(msg):
+    from winotify import Notification
+    n = Notification(app_id=TOAST_APP_ID, title='PyChat', msg=msg)
+    n.build().show()
+
+def toast_notifier_darwin(msg):
+    os.system('osascript -e \'display notification "' + msg + '" with title "PyChat"\'')
+
+
 if __name__ == "__main__":
     # enable hi dpi if os is Windows
     if os.name == 'nt':
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
+    
+    # setup toast notification
+    if TOAST_NOTIFICATION: 
+        if os.name == 'nt':
+            try:
+                import winotify
+                toast_notifier = toast_notifier_nt
+            except ImportError:
+                toast_notifier = toast_notifier_null
+        elif sys.platform == 'darwin':
+            toast_notifier = toast_notifier_darwin
+        else:
+            toast_notifier = toast_notifier_null
+
 
     if not os.path.exists('./MESSAGE_DUMP/'):
         os.mkdir('./MESSAGE_DUMP')
