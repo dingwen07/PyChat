@@ -195,7 +195,6 @@ def recever(s, msg_box):
 
 
 def main(host, s, r, id=-1):
-    print('Connected to ' + host)
     # global main_win
     main_win = tk.Tk()
     main_win.title('PyChat Client - #{}@{}'.format(str(id), host))
@@ -221,7 +220,6 @@ def main(host, s, r, id=-1):
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
     main_win.mainloop()
-    print('1')
     s.send('##EXIT'.encode())
     s.close()
     r.close()
