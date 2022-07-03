@@ -6,6 +6,7 @@ import sys
 import os
 import time
 import threading
+import shlex
 import tkinter as tk
 
 HOSTNAME = socket.gethostname()
@@ -288,7 +289,7 @@ def toast_notifier_nt(msg, title='PyChat'):
     toaster.show_toast(title, msg, duration=5, threaded=True, callback_on_click=lambda: get_focus())
 
 def toast_notifier_darwin(msg, title='PyChat'):
-    os.system('osascript -e \'display notification "{}" with title "{}"\''.format(msg, title))
+    os.system('osascript -e \'display notification "{}" with title "{}"\''.format(shlex.quote(msg), title))
 
 
 if __name__ == "__main__":
