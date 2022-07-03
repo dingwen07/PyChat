@@ -273,14 +273,19 @@ def entry_focus_out(entry, textvariable, default):
     else:
         entry.config(fg='black')
 
+def get_focus():
+    global main_win
+    main_win.lift()
+    main_win.attributes('-topmost', True)
+    main_win.attributes('-topmost', False)
+    main_win.focus_force()
 
 def toast_notifier_null(msg, title='PyChat'):
     pass
 
 def toast_notifier_nt(msg, title='PyChat'):
-    from winotify import Notification
-    n = Notification(app_id=TOAST_APP_ID, title=title, msg=msg)
-    n.build().show()
+    toaster = ToastNotifier()
+    toaster.show_toast(title, msg, duration=5, threaded=True, callback_on_click=lambda: get_focus())
 
 def toast_notifier_darwin(msg, title='PyChat'):
     os.system('osascript -e \'display notification "{}" with title "{}"\''.format(msg, title))
@@ -296,9 +301,10 @@ if __name__ == "__main__":
     if TOAST_NOTIFICATION: 
         if os.name == 'nt':
             try:
-                import winotify
+                from win10toast_click import ToastNotifier
                 toast_notifier = toast_notifier_nt
             except ImportError:
+                TOAST_NOTIFICATION = False
                 toast_notifier = toast_notifier_null
         elif sys.platform == 'darwin':
             toast_notifier = toast_notifier_darwin
