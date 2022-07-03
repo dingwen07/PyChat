@@ -212,7 +212,7 @@ def sender_main(cnn, addr):
                         WHERE "_rowid_"=?;
                         ''', (addr[0]+','+str(addr[1]), nickname, client_code, client_id))
     message_time = current_milli_time()
-    message_content = client_alias + ' ' + 'Connected'
+    message_content = '{} [#{}] Connected'.format(client_alias, client_id)
     db_cursor.execute('''
                         INSERT INTO "main"."messages"
                         ("client", "time", "content")
@@ -539,9 +539,10 @@ def sender_main(cnn, addr):
                             meta_data = json.loads(load_credential[3])
                             mute_time = int(user_cmd[2])*1000
                             meta_data['mute'] = current_milli_time() + mute_time
+                            meta_data_dump = json.dumps(meta_data)
                             try:
                                 db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
-                                                  (meta_data, target_client_id,))
+                                                  (meta_data_dump, target_client_id,))
                                 cmd_meta_data['command_result'] = {'code': 0, 'message': 'MUTE'}
                                 cmd_meta_data_dump = json.dumps(cmd_meta_data)
                                 db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
@@ -563,17 +564,22 @@ def sender_main(cnn, addr):
                             continue
                     elif user_cmd[0] == 'unmute' and len(user_cmd) > 1:
                         target_client_id = user_cmd[1]
-                        meta_data = json.dumps({'mute': time.time()})
                         try:
+                            load_meta = db_cursor.execute('''SELECT "id", "address", "name", "code", "valid", "meta" FROM "main"."clients" WHERE "id" = ?''', (target_client_id,)).fetchall()[0]
+                            print(load_meta)
+                            meta_data = json.loads(load_meta[5])
+                            meta_data['mute'] = current_milli_time()
+                            meta_data_dump = json.dumps(meta_data)
                             db_cursor.execute('''UPDATE "main"."clients" SET "meta"=? WHERE "_rowid_"=?;''',
-                                              (meta_data, target_client_id,))
+                                              (meta_data_dump, target_client_id,))
                             db.commit()
                             cmd_meta_data['command_result'] = {'code': 0, 'message': 'UNMUTE'}
                             cmd_meta_data_dump = json.dumps(cmd_meta_data)
-                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data, message_id,))
+                            db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
                             db.commit()
                             echo(cnn, 'UNMUTE', {'message_id': message_id})
-                        except Exception:
+                        except Exception as e:
+                            print(e)
                             cmd_meta_data['command_result'] = {'code': 2, 'message': 'CLIENT NOT FOUND'}
                             cmd_meta_data_dump = json.dumps(cmd_meta_data)
                             db_cursor.execute('''UPDATE "main"."messages" SET "meta"=? WHERE "_rowid_"=?;''', (cmd_meta_data_dump, message_id,))
@@ -855,7 +861,7 @@ def receiver_main(rxcnn, addr):
                                 client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
                             else:
                                 client_alias = client[2]
-                            message_send = '<DM> ' + client_alias + ': ' + message_content
+                            message_send = '<DM> {} [#{}]: {}'.format(client_alias, client[0], message_content)
                             # rxcnn.send(message_send.encode())
                             echo(rxcnn, message_send)
                             print('Local==>' + client_address + ' RX Send: ' + message_send)
@@ -883,7 +889,7 @@ def receiver_main(rxcnn, addr):
                 client_alias = str((client[1].split(',')[0], int(client[1].split(',')[1])))
             else:
                 client_alias = client[2]
-            message_send = client_alias + ': ' + message_content
+            message_send = '{} [#{}]: {}'.format(client_alias, str(client[0]), message_content)
             # rxcnn.send(message_send.encode())
             echo(rxcnn, message_send)
             errcount = 0

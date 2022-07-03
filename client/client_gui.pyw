@@ -7,6 +7,7 @@ import time
 import struct
 import threading
 import tkinter as tk
+from ctypes import windll
 
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
@@ -35,11 +36,11 @@ def connect_win_back(connect_win):
 def connect(host, port, nickname):
     root_win.withdraw()
     connect_win = tk.Tk()
-    connect_win.geometry('400x250')
+    connect_win.geometry('600x300')
     connect_win.title('PyChat Client - Connecting')
     connect_win.protocol('WM_DELETE_WINDOW', lambda: connect_win_back(connect_win))
     var_cnn_msg = tk.StringVar(connect_win)
-    info_lbl = tk.Message(connect_win, width=250, textvariable=var_cnn_msg)
+    info_lbl = tk.Message(connect_win, width=500, textvariable=var_cnn_msg)
     info_lbl.pack(side='top', anchor='nw', padx=5, pady=5)
     connect_win.update()
     cnn_msg = 'Connecting...\n'
@@ -95,7 +96,7 @@ def connect(host, port, nickname):
         cnn_msg += 'Connection finished.\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
-        t = threading.Thread(target=main, args=(host, s, r,))
+        t = threading.Thread(target=main, args=(host, s, r, client_credential['id']))
         t.daemon = True
         t.start()
         connect_win.destroy()
@@ -106,7 +107,7 @@ def connect(host, port, nickname):
         cnn_msg += 'Failed to connect...\n'
         var_cnn_msg.set(cnn_msg)
         win_close_btm = tk.Button(connect_win, text='Close', command=lambda: connect_win_back(connect_win))
-        win_close_btm.pack(side='top', anchor='nw', padx=10)
+        win_close_btm.pack(side='top', anchor='nw', padx=10, pady=10)
         connect_win.update()
 
 def sender_task(s, msg_box, msg_ent, send_btm):
@@ -194,10 +195,10 @@ def recever(s, msg_box):
             break
 
 
-def main(host, s, r):
+def main(host, s, r, id=-1):
     # global main_win
     main_win = tk.Tk()
-    main_win.title('PyChat Client - {}'.format(host))
+    main_win.title('PyChat Client - #{}@{}'.format(str(id), host))
     msg_box = tk.Text(main_win, font=('Arial',10), wrap='word', state='disabled', height=10, width=50)
     msg_box.pack(side='left', expand=True, fill='both')
     msg_box_sb = tk.Scrollbar(main_win, orient="vertical")
@@ -226,6 +227,8 @@ def main(host, s, r):
 
 
 if __name__ == "__main__":
+    windll.shcore.SetProcessDpiAwareness(1)
+
     if not os.path.exists('./MESSAGE_DUMP/'):
         os.mkdir('./MESSAGE_DUMP')
     global root_win
