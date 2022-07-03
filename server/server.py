@@ -11,11 +11,11 @@ Requirements: {
                 {
                     "Port": 233,
                     "PortRcv": 234,
+                    "Host": "default",
                     "Auth": false,
                     "AllowAdminCommands": true,
                     "AllowNickname": true,
-                    "MessageLogFile": "./message-log.json",
-                    "CredentialFolder": "./credentials/",
+                    "ServerName": "default",
                     "WelcomeMessage": "Welcome to PyChat Server!"
                 }
 }
@@ -98,11 +98,11 @@ if not os.path.exists(CONFIG_FILE):
         dump_data = {
             "Port": 233,
             "PortRcv": 234,
+            "Host": "default",
             "Auth": False,
             "AllowAdminCommands": True,
             "AllowNickname": True,
-            "MessageLogFile": "./message-log.json",
-            "CredentialFolder": "./credentials/",
+            "ServerName": "default",
             "WelcomeMessage": "Welcome to PyChat Server!"
         }
         json.dump(dump_data, dump_file)
@@ -118,12 +118,20 @@ else:
     rx_port = port + 1
 AllowAdminCommands = load_conf['AllowAdminCommands']
 AllowNickname = load_conf['AllowNickname']
+ServerName = load_conf['ServerName']
 WelcomeMessage = load_conf['WelcomeMessage']
+
+if load_conf['Host'] != 'default':
+    HOST = load_conf['Host']
+
+if ServerName == 'default':
+    ServerName = socket.gethostname()
 
 server_info = {
     'host': socket.gethostname(),
     'appid': 1,
-    'portrcv': rx_port
+    'portrcv': rx_port,
+    'name': ServerName
 }
 
 

@@ -7,15 +7,17 @@ import time
 import threading
 import tkinter as tk
 
+HOSTNAME = socket.gethostname()
+DEFAULT_SERVER = HOSTNAME
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
 
 client_info = {
-    'host': socket.gethostname(),
+    'host': HOSTNAME,
     'appid': 1
 }
 rx_client_info = {
-    'host': socket.gethostname(),
+    'host': HOSTNAME,
     'appid': 1
 }
 
@@ -34,13 +36,14 @@ def connect_win_back(connect_win):
 def connect(host, port, nickname):
     root_win.withdraw()
     connect_win = tk.Tk()
-    connect_win.geometry('600x300')
+    connect_win.geometry('600x300+{}+{}'.format(root_win.winfo_x() + 20, root_win.winfo_y() + 20))
     connect_win.title('PyChat Client - Connecting')
     connect_win.protocol('WM_DELETE_WINDOW', lambda: connect_win_back(connect_win))
     var_cnn_msg = tk.StringVar(connect_win)
     info_lbl = tk.Message(connect_win, width=500, textvariable=var_cnn_msg)
     info_lbl.pack(side='top', anchor='nw', padx=5, pady=5)
     connect_win.update()
+    connect_win.focus_force()
     cnn_msg = 'Connecting...\n'
     var_cnn_msg.set(cnn_msg)
     connect_win.update()
@@ -98,7 +101,7 @@ def connect(host, port, nickname):
         # t.daemon = True
         # t.start()
         connect_win.destroy()
-        main(host, s, r, client_credential['id'])
+        main(host, s, r, client_credential['id'], server_data)
         return 0
     except Exception as e:
         cnn_msg += str(e) + '\n'
@@ -110,6 +113,7 @@ def connect(host, port, nickname):
         connect_win.update()
 
 def sender_task(s, msg_box, msg_ent, send_btm):
+    
     sender_thread = threading.Thread(target=sender, args=(s, msg_box, msg_ent, send_btm))
     sender_thread.start()
 
@@ -194,10 +198,14 @@ def recever(s, msg_box):
             break
 
 
-def main(host, s, r, id=-1):
+def main(host, s, r, id=-1, server_data=None):
+    if server_data is None:
+        server_data = {
+            'name': host,
+        }
     # global main_win
     main_win = tk.Tk()
-    main_win.title('PyChat Client - #{}@{}'.format(str(id), host))
+    main_win.title('PyChat Client - #{}@{}'.format(str(id), server_data['name']))
     msg_box = tk.Text(main_win, font=('Arial',10), wrap='word', state='disabled', height=10, width=50)
     msg_box.pack(side='left', expand=True, fill='both')
     msg_box_sb = tk.Scrollbar(main_win, orient="vertical")
@@ -219,12 +227,29 @@ def main(host, s, r, id=-1):
 
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
+    main_win.focus_force()
+    msg_ent.focus_set()
     main_win.mainloop()
     s.send('##EXIT'.encode())
     s.close()
     r.close()
     root_win.deiconify()
     main_win.destroy()
+
+
+def entry_focus_in(entry, textvariable, default):
+    if textvariable.get() == default:
+        entry.delete(0, 'end')
+        entry.config(fg='black')
+    else:
+        entry.config(fg='black')
+
+def entry_focus_out(entry, textvariable, default):
+    if textvariable.get() == '':
+        textvariable.set(default)
+        entry.config(fg='grey')
+    else:
+        entry.config(fg='black')
 
 
 if __name__ == "__main__":
@@ -244,8 +269,8 @@ if __name__ == "__main__":
 
     host_ent_frame = tk.Frame(root_win)
     host_ent_lbl = tk.Label(host_ent_frame, text='Server', font=('Arial', 12))
-    var_host = tk.StringVar(value=socket.gethostname())
-    host_ent = tk.Entry(host_ent_frame, show=None, font=('Consolas', 12), textvariable=var_host)
+    var_host = tk.StringVar(value=DEFAULT_SERVER)
+    host_ent = tk.Entry(host_ent_frame, show=None, font=('Consolas', 12), textvariable=var_host, fg='grey')
     host_ent_lbl.pack(side='left', fill='x', expand=False, padx=5, pady=5)
     host_ent.pack(side='right', fill='x', expand=False, padx=5, pady=5)
     host_ent_frame.pack(fill='both')
@@ -253,7 +278,7 @@ if __name__ == "__main__":
     port_ent_frame = tk.Frame(root_win)
     port_ent_lbl = tk.Label(port_ent_frame, text='Port', font=('Arial', 12))
     var_port = tk.StringVar(value=str(DEFAULT_PORT))
-    port_ent = tk.Entry(port_ent_frame, show=None, font=('Arial', 12), textvariable=var_port)
+    port_ent = tk.Entry(port_ent_frame, show=None, font=('Arial', 12), textvariable=var_port, fg='grey')
     port_ent_lbl.pack(side='left', fill='x', expand=False, padx=5, pady=5)
     port_ent.pack(side='right', fill='x', expand=False, padx=5, pady=5)
     port_ent_frame.pack(fill='both')
@@ -261,13 +286,21 @@ if __name__ == "__main__":
     nick_ent_frame = tk.Frame(root_win)
     nick_ent_lbl = tk.Label(nick_ent_frame, text='Nickname', font=('Arial', 12))
     var_nick = tk.StringVar(value='')
-    nick_ent = tk.Entry(nick_ent_frame, show=None, font=('Arial', 12), textvariable=var_nick)
+    nick_ent = tk.Entry(nick_ent_frame, show=None, font=('Arial', 12), textvariable=var_nick, fg='grey')
     nick_ent_lbl.pack(side='left', fill='x', expand=False, padx=5, pady=5)
     nick_ent.pack(side='right', fill='x', expand=False, padx=5, pady=5)
     nick_ent_frame.pack(fill='both')
 
     connect_btm = tk.Button(root_win, text='Connect', command=lambda: connect_btn(var_host.get(), int(var_port.get()), var_nick.get()))
     connect_btm.pack(expand=False, pady=10)
+
+    host_ent.bind('<FocusIn>', lambda event=None: entry_focus_in(host_ent, var_host, DEFAULT_SERVER))
+    host_ent.bind('<FocusOut>', lambda event=None: entry_focus_out(host_ent, var_host, DEFAULT_SERVER))
+    port_ent.bind('<FocusIn>', lambda event=None: entry_focus_in(port_ent, var_port, str(DEFAULT_PORT)))
+    port_ent.bind('<FocusOut>', lambda event=None: entry_focus_out(port_ent, var_port, str(DEFAULT_PORT)))
+    nick_ent.bind('<FocusIn>', lambda event=None: entry_focus_in(nick_ent, var_nick, ''))
+    nick_ent.bind('<FocusOut>', lambda event=None: entry_focus_out(nick_ent, var_nick, ''))
+    connect_btm.bind('<ButtonPress>', lambda event=None: connect_btm.focus_set())
 
     root_win.bind('<Return>', lambda event=None: connect_btm.invoke())
     root_win.resizable(width=False, height=False)
