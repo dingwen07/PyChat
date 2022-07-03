@@ -25,6 +25,7 @@ rx_client_info = {
     'appid': 1
 }
 TOAST_APP_ID = 'PyChat'
+server_name = ""
 
 last_toast_time = 0
 toast_notifier = lambda msg: toast_notifier_null(msg)
@@ -207,7 +208,8 @@ def receiver(s, msg_box):
             if TOAST_NOTIFICATION and current_milli_time() > last_toast_time + TOAST_MINIMUM_DURATION:
                 # check if application has focus
                 if main_win.focus_displayof() == None:
-                    toast_notifier(rx_data)
+                    global server_name
+                    toast_notifier(rx_data, title='PyChat - {}'.format(server_name))
                     last_toast_time = current_milli_time()
         except Exception as e:
             print(e)
@@ -221,6 +223,8 @@ def main(host, s, r, id=-1, server_data=None):
         server_data = {
             'name': host,
         }
+    global server_name
+    server_name = server_data['name']
     global main_win
     main_win = tk.Tk()
     main_win.title('PyChat Client - #{}@{}'.format(str(id), server_data['name']))
@@ -270,16 +274,16 @@ def entry_focus_out(entry, textvariable, default):
         entry.config(fg='black')
 
 
-def toast_notifier_null(msg):
+def toast_notifier_null(msg, title='PyChat'):
     pass
 
-def toast_notifier_nt(msg):
+def toast_notifier_nt(msg, title='PyChat'):
     from winotify import Notification
-    n = Notification(app_id=TOAST_APP_ID, title='PyChat', msg=msg)
+    n = Notification(app_id=TOAST_APP_ID, title=title, msg=msg)
     n.build().show()
 
-def toast_notifier_darwin(msg):
-    os.system('osascript -e \'display notification "' + msg + '" with title "PyChat"\'')
+def toast_notifier_darwin(msg, title='PyChat'):
+    os.system('osascript -e \'display notification "{}" with title "{}"\''.format(msg, title))
 
 
 if __name__ == "__main__":
