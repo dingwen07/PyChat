@@ -4,10 +4,8 @@ import socket
 import sys
 import os
 import time
-import struct
 import threading
 import tkinter as tk
-from ctypes import windll
 
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
@@ -96,10 +94,11 @@ def connect(host, port, nickname):
         cnn_msg += 'Connection finished.\n'
         var_cnn_msg.set(cnn_msg)
         connect_win.update()
-        t = threading.Thread(target=main, args=(host, s, r, client_credential['id']))
-        t.daemon = True
-        t.start()
+        # t = threading.Thread(target=main, args=(host, s, r, client_credential['id']))
+        # t.daemon = True
+        # t.start()
         connect_win.destroy()
+        main(host, s, r, client_credential['id'])
         return 0
     except Exception as e:
         cnn_msg += str(e) + '\n'
@@ -196,6 +195,7 @@ def recever(s, msg_box):
 
 
 def main(host, s, r, id=-1):
+    print('Connected to ' + host)
     # global main_win
     main_win = tk.Tk()
     main_win.title('PyChat Client - #{}@{}'.format(str(id), host))
@@ -209,6 +209,7 @@ def main(host, s, r, id=-1):
     msg_ent.pack(side='top', expand=True, fill='both')
     main_win.bind('<Return>', lambda event=None: send_btm.invoke())
     main_win.bind('<Shift-Return>', lambda event=None: msg_ent.insert('end', ''))
+    main_win.protocol('WM_DELETE_WINDOW', main_win.quit)
 
     send_btm = tk.Button(main_win, text='Send', command=lambda: sender_task(s, msg_box, msg_ent, send_btm))
     send_btm.pack(side='bottom', pady=10)
@@ -220,14 +221,19 @@ def main(host, s, r, id=-1):
     main_win.update()
     main_win.minsize(main_win.winfo_width(), main_win.winfo_height())
     main_win.mainloop()
+    print('1')
     s.send('##EXIT'.encode())
     s.close()
     r.close()
     root_win.deiconify()
+    main_win.destroy()
 
 
 if __name__ == "__main__":
-    windll.shcore.SetProcessDpiAwareness(1)
+    # enable hi dpi if os is Windows
+    if os.name == 'nt':
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
 
     if not os.path.exists('./MESSAGE_DUMP/'):
         os.mkdir('./MESSAGE_DUMP')
