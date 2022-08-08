@@ -13,6 +13,7 @@ HOSTNAME = socket.gethostname()
 DEFAULT_SERVER = HOSTNAME
 DEFAULT_PORT = 233
 CLIENT_CREDENTIAL_FILE = 'credential.json'
+SERVER_MEMORY_FILE = 'server_memory.json'
 TOAST_NOTIFICATION = True
 TOAST_MINIMUM_DURATION = 1000
 
@@ -33,7 +34,37 @@ toast_notifier = lambda msg: toast_notifier_null(msg)
 
 current_milli_time = lambda: int(round(time.time() * 1000))
 
+def load_server_memory():
+    try:
+        with open(SERVER_MEMORY_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_server_memory(host, port, nickname):
+    server_memory = load_server_memory()
+    if 'data' not in server_memory:
+        server_memory['data'] = {}
+    server_memory['data'][host] = {
+        'host': host,
+        'port': port,
+        'nickname': nickname,
+    }
+    server_memory['last'] = host
+    with open(SERVER_MEMORY_FILE, 'w') as f:
+        json.dump(server_memory, f)
+
+def get_last_server():
+    server_memory = load_server_memory()
+    if 'last' in server_memory:
+        return server_memory['data'][server_memory['last']]
+    else:
+        return None
+
+
 def connect_btn(host, port, nickname, event=None):
+    # save server details
+    save_server_memory(host, port, nickname)
     connect(host, port, nickname)
 
 def connect_win_back(connect_win):
@@ -316,7 +347,9 @@ if __name__ == "__main__":
                 toast_notifier = toast_notifier_null
         else:
             toast_notifier = toast_notifier_null
-
+    
+    # load last server
+    last_server = get_last_server()
 
     if not os.path.exists('./MESSAGE_DUMP/'):
         os.mkdir('./MESSAGE_DUMP')
@@ -361,6 +394,19 @@ if __name__ == "__main__":
     nick_ent.bind('<FocusIn>', lambda event=None: entry_focus_in(nick_ent, var_nick, ''))
     nick_ent.bind('<FocusOut>', lambda event=None: entry_focus_out(nick_ent, var_nick, ''))
     connect_btm.bind('<ButtonPress>', lambda event=None: connect_btm.focus_set())
+
+    # if last server is set, load it
+    if last_server:
+        if last_server['host'] not in ['', DEFAULT_SERVER]:
+            var_host.set(last_server['host'])
+            host_ent.config(fg='black')
+        if str(last_server['port']) not in ['', str(DEFAULT_PORT)]:
+            var_port.set(str(last_server['port']))
+            port_ent.config(fg='black')
+        if last_server['nickname'] not in ['', '']:
+            var_nick.set(last_server['nickname'])
+            nick_ent.config(fg='black')
+        
 
     root_win.bind('<Return>', lambda event=None: connect_btm.invoke())
     root_win.resizable(width=False, height=False)
